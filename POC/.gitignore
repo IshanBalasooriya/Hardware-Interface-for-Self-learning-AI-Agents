@@ -1,0 +1,22 @@
+# Environment / secrets — never commit real credentials
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Arduino / PlatformIO build artifacts
+firmware/**/build/
+firmware/**/.pio/
+*.hex
+*.bin
+
+# OS-specific clutter
+.DS_Store
+Thumbs.db
+
+# Editor/IDE settings
+.vscode/
+.idea/
