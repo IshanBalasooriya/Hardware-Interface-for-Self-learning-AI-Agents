@@ -136,6 +136,20 @@ Google Home's newer Gemini integration adds AI-assisted automation creation, but
 ![Proposed High Level System Architecture](readme_imgs/revised_high_level_architecture.png)
 
 
+## Project Phase Timeline
+
+| Phase | Focus | Outcome |
+|---|---|---|
+| 0. Foundations | LLM access and tool-calling mechanism, no hardware involved | Agent can reliably call and receive structured tool requests |
+| 1. Vertical slice (PoC) | Connect agent to real hardware via a bridge | Agent controls a physical actuator end-to-end |
+| 2. Sensing | Replace mocked readings with real sensor input | Agent reasons over real-world data |
+| 3. Reliability | Safety limits and outcome verification in the bridge/firmware | Actions are checked, not just assumed to work |
+| 4. Learning | Pattern recognition over logged experience, generating new skills automatically | Agent builds its own skill library from repeated behavior |
+| 5. Generalization | Formalize the learning and translation layers as swappable modules | Framework is portable across domains, not just this one setup |
+| 6. Hardening | Stress-test failure modes and edge cases | System degrades safely rather than breaking |
+| 7. Delivery | Documentation, diagrams, demo | Project is presentable and defensible |
+
+
 
 
 ## Week 01 — The POC
