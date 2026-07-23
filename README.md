@@ -139,7 +139,7 @@ Google Home's newer Gemini integration adds AI-assisted automation creation, but
 
 
 ## Week 01 — The POC
-### Brief;
+### Briefly
 **GOAL:** Configuring an LLM to be able to use skills to move actuators and read sensors
 **END-RESULT:** Getting an LLM to control a simple LED via ESP-32
 
@@ -156,7 +156,7 @@ Google Home's newer Gemini integration adds AI-assisted automation creation, but
 
 #### Reference [OpenAI API Server via Codex]([https://github.com/octocat/Hello-World](https://github.com/hotchpotch/openai-api-server-via-codex#openai-api-server-via-codex)).
 
-#### How?
+### How?
 - All LLMs follow a universal egenric flow when it comes to prompting, tool calling and feedback as below:
 
 ![Proposed High Level System Architecture](readme_imgs/llm_conversation_arcchitecture.png)
