@@ -1,31 +1,45 @@
 """
-llm_setup/step_a_test_connection.py
+llm_setup/step_a_test_connection.py  (OpenAI-compatible / Codex-server version)
 
-The smallest possible test: confirms your Gemini API key and environment
-work at all, with zero other complexity (no tools, no hardware, nothing).
+The smallest possible test: confirms your local openai-api-server-via-codex
+server is running and reachable, with zero other complexity (no tools, no
+hardware, nothing).
 
 Setup:
-  1. Get a free API key: https://aistudio.google.com/apikey
-  2. pip install google-genai python-dotenv
-  3. Copy .env.example to .env (in the POC/ root) and paste your key in
+  1. Make sure the local server is running in a separate terminal:
+       uvx openai-api-server-via-codex
+     (leave that terminal open/running while you use this script)
+  2. pip install openai python-dotenv
+  3. In your .env file, set:
+       OPENAI_BASE_URL=http://127.0.0.1:18080/v1
+       OPENAI_API_KEY=dummy
+     (the key is a placeholder the SDK requires -- the local server ignores
+     it unless you configured --api-key when starting the server)
   4. python llm_setup/step_a_test_connection.py
 
-Expected output: a short text reply from the model, proving the connection works.
+Expected output: a short text reply, proving the connection through the
+local Codex-backed server works.
 """
 
 from dotenv import load_dotenv
-load_dotenv()  # reads POC/.env and loads GEMINI_API_KEY into the environment
+load_dotenv()
 
-from google import genai
+import os
+from openai import OpenAI
 
-client = genai.Client()  # picks up GEMINI_API_KEY automatically
-
-# interaction object contains the model's sturcture response object (reply + metadata)
-interaction = client.interactions.create( # intercations fn sends the request to the model
-    model="gemini-3.5-flash", # The Model
-    input="Reply with exactly one short sentence confirming you're connected.", # The prompt
-    #input="Hi there", 
-
+client = OpenAI(
+    base_url=os.environ["OPENAI_BASE_URL"],
+    api_key=os.environ["OPENAI_API_KEY"],
 )
 
-print("[gemini] ", interaction.output_text) # Prints the model's plain text of the reply 
+response = client.chat.completions.create(
+    model="gpt-5.5",
+    messages=[
+        {"role": "user", "content": "Reply with exactly one short sentence confirming you're connected."}
+    ],
+)
+
+
+print(response.model_dump_json(indent=2))
+
+# print("[codex-server] ", response.choices[0].message.content)

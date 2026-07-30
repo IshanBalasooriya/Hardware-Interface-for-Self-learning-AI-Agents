@@ -179,8 +179,15 @@ Google Home's newer Gemini integration adds AI-assisted automation creation, but
 
 ### Implementation 
 
+
 ![Proposed High Level System Architecture](readme_imgs/OpenAI_Server_VIA_Codex.png)
 
 
 
+![Proposed High Level System Architecture](readme_imgs/ai_conservational.png)
 
+
+
+### Response Object
+
+![Proposed High Level System Architecture](readme_imgs/response_object.png)
