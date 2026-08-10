@@ -1,9 +1,0 @@
-{
-  "name": "evening_light_routine",
-  "description": "Turn on soft evening lights and set a warm brightness level.",
-  "steps": [
-    {"action": "turn_on", "color": "warm", "brightness": 30},
-    {"action": "wait", "duration_seconds": 2},
-    {"action": "set_mode", "mode": "relax"}
-  ]
-}

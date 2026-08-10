@@ -1,3 +1,4 @@
 # Python dependencies for the POC
 pyserial
 python-dotenv
+openai

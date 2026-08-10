@@ -159,6 +159,7 @@ Google Home's newer Gemini integration adds AI-assisted automation creation, but
 
 **Progress:** 
     - The LLM - *Open AI LLMs
+    - The Contorl - Hybrid Approach
 
 ### 1. The LLM?
 - I'll be planning towards
@@ -191,3 +192,59 @@ Google Home's newer Gemini integration adds AI-assisted automation creation, but
 ### Response Object
 
 ![Proposed High Level System Architecture](readme_imgs/response_object.png)
+
+
+## The Control
+- A major setback I came across was for real-time response controls. It's almopst impossible to be done by a LLM. Regardless of the LLM used, and even if we could get an LLM to run on the actual MCU (Rasberry Pi - could run a more larger and capable LLM / ESP-32 - in current context some have managed to run tiny 30M parameter LLMs which are too tiny), the round trip from prompt - response typically would take too long for a real-time high frequency stsem like PID...
+
+- So I decided on adapting a Hybrid Apprach when it comes to how the agent actually inetracts with physical hardware.
+
+
+![Proposed High Level System Architecture](readme_imgs/the_control_approach.png)
+
+
+#### Approach 1 — Round-trip primitive calls
+
+- Used for ordinary, non-time-sensitive actions (toggling a pin, reading a sensor once). The agent requests one generic primitive action at a time; the command travels to the MCU, executes, and a confirmation returns before the next action is sent. Each step is a full, independent round trip. Latency is acceptable here since nothing in this category requires faster-than-perceptible response times. This is the default path for the large majority of tasks.
+
+#### Approach 2 — Self-contained real-time loops
+
+- Used only when a task requires timing precision or consistency a round trip cannot provide (e.g. PID control, motor stabilization). The agent makes a single call handing off the entire task; the MCU then runs its own tight measure–calculate–adjust loop locally, with no communication back to the agent mid-loop. Only a summary result is returned once the routine completes. This path exists specifically for cases where the physical process cannot wait on network/serial latency.
+
+
+### Round Trip Calls
+
+#### Architecture
+
+Three components make this work: 
+- The LLM (decides which tool to call, never touches hardware directly — it has no capability to perform I/O)
+- The agent runtime (a Python program holding a tool registry that maps each tool name to a real function, and the only component capable of actually sending network/serial requests)
+- The MCU firmware (exposes a small set of generic, validated hardware primitives — e.g. set/read a pin — and executes them on request).
+
+#### Request-to-execution flow
+
+![Proposed High Level System Architecture](readme_imgs/round_trip_loop.png)
+
+
+Decision — The LLM selects a tool (e.g. set_gpio) and specifies its arguments (pin, value). This produces a structured request, not an action.
+
+Lookup — The agent runtime receives this request, looks up the tool name in its registry, and calls the matching Python function.
+
+Dispatch — That function sends the command to the ESP32 over the chosen transport (HTTP/serial), carrying the validated parameters.
+
+Execution — The ESP32 parses the incoming request and calls the corresponding low-level function (e.g. digitalWrite), producing the real physical effect.
+
+Confirmation — The ESP32 sends a result back over the same connection.
+
+Return — The runtime receives that confirmation and passes it back to the LLM (or, for a multi-step skill, sends the next command in sequence).
+
+
+
+
+
+## PROs of this entire project
+- If implemented correctly, this would enable rapid development and iteration
+- Creates a real-world continously self-imporving hardware pilot/contorller that'll improve throughout its life-cycle
+- Easily can switch out the hardware based keeping the software untouched
+- Rolling out new innovative featsures becomes much efficient as the agent can back-test multiple apporaches to accomplishing said-feature in a very small time period till it reaches the otpimal solution.
+- 

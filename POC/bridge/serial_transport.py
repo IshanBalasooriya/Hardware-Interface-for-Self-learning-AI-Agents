@@ -1,0 +1,39 @@
+"""
+Layer: Bridge
+Component #1: Serial Transport Module.
+
+Owns the raw serial connection. Purely responsible for: open the port, send a line of text,
+read a line of text back, handle timeouts. Kept deliberately separate from
+tool_functions.py for clairty so the two responsibilities (moving bytes vs. knowing what
+the bytes mean) are not mixed together.
+-------------------------------------------------
+connect() opens the pipe once and confirms the firmware is alive;
+send() is called once per command, pushes text out, and blocks until a text reply comes back or times out 
+— every other part of your system only ever interacts with the ESP32 through this one function.
+"""
+
+import time
+import serial
+
+_ser = None # module-level variable to hold the serial connection object
+
+
+def connect(port: str, baud: int = 115200, timeout: float = 2.0) -> None:
+    """Open the serial connection and wait for the firmware's READY line."""
+    global _ser
+    _ser = serial.Serial(port, baud, timeout=timeout)
+    time.sleep(2)  # ESP32 resets when the serial port opens; give it a moment
+    _ser.reset_input_buffer()
+    ready_line = _ser.readline().decode(errors="ignore").strip()
+    print(f"[transport] connected on {port}: {ready_line!r}")
+
+
+def send(cmd: str) -> str:
+    """Send one command line, return the single response line (raw string)."""
+    if _ser is None:
+        raise RuntimeError("Transport not connected -- call transport.connect() first.")
+    _ser.write((cmd + "\n").encode())
+    response = _ser.readline().decode(errors="ignore").strip() # Waits for a response line or times out from the firmware.
+    if response == "":
+        raise TimeoutError(f"No response from MCU for command: {cmd!r}")
+    return response
