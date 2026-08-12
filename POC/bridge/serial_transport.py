@@ -20,11 +20,11 @@ _ser = None # module-level variable to hold the serial connection object
 
 def connect(port: str, baud: int = 115200, timeout: float = 2.0) -> None:
     """Open the serial connection and wait for the firmware's READY line."""
-    global _ser
+    global _ser # Alter the module-level (global variable) not create a new local variable
     _ser = serial.Serial(port, baud, timeout=timeout)
     time.sleep(2)  # ESP32 resets when the serial port opens; give it a moment
-    _ser.reset_input_buffer()
-    ready_line = _ser.readline().decode(errors="ignore").strip()
+    _ser.reset_input_buffer() # Clean buffer after bootup
+    ready_line = _ser.readline().decode(errors="ignore").strip() # blocks (till timeout) to get the "READY/n" alive message
     print(f"[transport] connected on {port}: {ready_line!r}")
 
 
@@ -32,7 +32,7 @@ def send(cmd: str) -> str:
     """Send one command line, return the single response line (raw string)."""
     if _ser is None:
         raise RuntimeError("Transport not connected -- call transport.connect() first.")
-    _ser.write((cmd + "\n").encode())
+    _ser.write((cmd + "\n").encode()) # convert the python string to raw bytes for transmission over the serial port
     response = _ser.readline().decode(errors="ignore").strip() # Waits for a response line or times out from the firmware.
     if response == "":
         raise TimeoutError(f"No response from MCU for command: {cmd!r}")

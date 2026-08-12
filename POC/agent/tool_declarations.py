@@ -82,29 +82,93 @@ TOOL_DECLARATIONS = [
         "function": {
             "name": "save_skill",
             "description": (
-                "Persist a discovered control policy to the skill library so it can be replayed later "
-                "without an LLM call. The definition must include: target, tolerance, brightness, "
-                "iterations, final_error, version."
+                "Persist a discovered or composed skill to the skill library so it can be replayed "
+                "later without an LLM call. Two skill types are supported, chosen via definition.type: "
+                "'light_policy' (the default if type is omitted) needs target, tolerance, brightness, "
+                "iterations, final_error, version. 'action_sequence' needs an ordered 'actions' list "
+                "of {tool, args} tool-call steps, plus version."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Skill name, e.g. 'maintain_light' or 'maintain_light_v2'."},
+                    "name": {"type": "string", "description": "Skill name, e.g. 'maintain_light' or 'blink_twice'."},
                     "definition": {
                         "type": "object",
-                        "description": "The policy details: target, tolerance, brightness, iterations, final_error, version.",
+                        "description": (
+                            "The skill's contents. Set 'type' to 'light_policy' or 'action_sequence' -- "
+                            "omitting 'type' defaults to 'light_policy'."
+                        ),
                         "properties": {
-                            "target": {"type": "integer"},
-                            "tolerance": {"type": "integer"},
-                            "brightness": {"type": "integer"},
-                            "iterations": {"type": "integer"},
-                            "final_error": {"type": "integer"},
-                            "version": {"type": "integer"},
+                            "type": {
+                                "type": "string",
+                                "enum": ["light_policy", "action_sequence"],
+                                "description": "Which skill shape this is. Defaults to 'light_policy' if omitted.",
+                            },
+                            "target": {"type": "integer", "description": "light_policy only."},
+                            "tolerance": {"type": "integer", "description": "light_policy only."},
+                            "brightness": {"type": "integer", "description": "light_policy only."},
+                            "iterations": {"type": "integer", "description": "light_policy only."},
+                            "final_error": {"type": "integer", "description": "light_policy only."},
+                            "actions": {
+                                "type": "array",
+                                "description": "action_sequence only -- ordered list of tool-call steps.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "tool": {"type": "string", "description": "Tool name, e.g. 'set_gpio' or 'wait'."},
+                                        "args": {"type": "object", "description": "Arguments for that tool call."},
+                                    },
+                                    "required": ["tool", "args"],
+                                },
+                            },
+                            "version": {"type": "integer", "description": "Required for both types."},
                         },
-                        "required": ["target", "tolerance", "brightness", "iterations", "final_error", "version"],
+                        "required": ["version"],
                     },
                 },
                 "required": ["name", "definition"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "wait",
+            "description": (
+                "Pause for a duration in milliseconds. Pure software delay -- no hardware round trip. "
+                "Use this to space out on/off calls so a sequence like a blink is visibly timed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration_ms": {"type": "integer", "description": "Milliseconds to wait."},
+                },
+                "required": ["duration_ms"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_skills",
+            "description": "List the names of skills currently saved in the skill library.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_skill",
+            "description": (
+                "Load a previously saved skill's full definition by name, so you can inspect exactly "
+                "what it contains instead of relying on what you remember saying earlier."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Skill name, e.g. 'blink_twice'."},
+                },
+                "required": ["name"],
             },
         },
     },

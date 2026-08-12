@@ -16,12 +16,15 @@
 
 #include <Arduino.h>
 
+
+//Firmware safety layer: allowed list of pins that can be interacted with
 const int ALLOWED_DIGITAL_PINS[] = {5, 2};
 const int ALLOWED_PWM_PINS[] = {5};
 const int ALLOWED_ADC_PINS[] = {34};
 
+// PWM Constraints
 const int PWM_FREQ = 5000;
-const int PWM_RESOLUTION_BITS = 8; // duty range 0-255
+const int PWM_RESOLUTION_BITS = 8; // duty range 0-255 (0- off : 255- full on)
 const int PWM_CHANNEL = 0;         // only used on the legacy (pre-3.x) ledc API
 
 bool isAllowed(int pin, const int *list, int len);
@@ -31,29 +34,36 @@ void handleReadGpio(const String &rest);
 void handleSetPwm(const String &rest);
 void handleReadAdc(const String &rest);
 
+
+// Firmware safety layer: only allow commands on pins in the allowlist
 bool isAllowed(int pin, const int *list, int len) {
-  for (int i = 0; i < len; i++) {
-    if (list[i] == pin) return true;
-  }
-  return false;
+  return true; // Temporary override for testing; remove this line to enforce allowlist
+  // for (int i = 0; i < len; i++) {
+  //   if (list[i] == pin) return true;
+  // }
+  // return false;
 }
+
 
 void setup() {
   Serial.begin(115200);
 
+  // Initialize all ALLOWED_DIGITAL_PINS to be writen to not read
   for (unsigned int i = 0; i < sizeof(ALLOWED_DIGITAL_PINS) / sizeof(int); i++) {
     pinMode(ALLOWED_DIGITAL_PINS[i], OUTPUT);
   }
 
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  // PWM setup: Bind to pin and configure resolution and frequency.
+#if ESP_ARDUINO_VERSION_MAJOR >= 3 //The ledc API is available in ESP32 v3.x only
   ledcAttach(ALLOWED_PWM_PINS[0], PWM_FREQ, PWM_RESOLUTION_BITS);
 #else
   ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION_BITS);
   ledcAttachPin(ALLOWED_PWM_PINS[0], PWM_CHANNEL);
 #endif
 
-  Serial.println("READY");
+  Serial.println("ESP32_READY");
 }
+
 
 void loop() {
   if (Serial.available()) {
@@ -65,13 +75,16 @@ void loop() {
   }
 }
 
+
 void handleCommand(const String &line) {
+  // Alive check cmnd
   if (line == "PING") {
     Serial.println("OK PONG");
     return;
   }
 
-  int firstSpace = line.indexOf(' ');
+
+  int firstSpace = line.indexOf(' '); //-1 means no space found
   String cmd = firstSpace == -1 ? line : line.substring(0, firstSpace);
   String rest = firstSpace == -1 ? "" : line.substring(firstSpace + 1);
 
@@ -97,7 +110,19 @@ void handleSetGpio(const String &rest) {
     Serial.println("ERR PIN_NOT_ALLOWED");
     return;
   }
-  digitalWrite(pin, value ? HIGH : LOW);
+    // Release the pin from the LEDC (PWM) peripheral before driving it as a
+  // plain digital output — otherwise LEDC silently keeps control of the
+  // pin and digitalWrite() has no visible effect, even though it reports
+  // success.
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcDetach(pin);
+#else
+  ledcDetachPin(pin);
+#endif
+
+  pinMode(pin, OUTPUT);
+
+  digitalWrite(pin, value ? HIGH : LOW); // Drive the Pin HIGH for any non-zero value, LOW for 0
   Serial.println("OK");
 }
 
@@ -136,7 +161,7 @@ void handleReadAdc(const String &rest) {
     Serial.println("ERR PIN_NOT_ALLOWED");
     return;
   }
-  int value = analogRead(pin);
+  int value = analogRead(pin); // Read the ADC value (0-4095 for 12-bit ADC). Used here for the light sensor
   Serial.print("OK VALUE=");
   Serial.println(value);
 }

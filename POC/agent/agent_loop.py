@@ -19,7 +19,7 @@ import os
 import sys
 from pathlib import Path
 
-_AGENT_DIR = Path(__file__).resolve().parent
+_AGENT_DIR = Path(__file__).resolve().parent # absolute path to the directory containing this file
 _BRIDGE_DIR = _AGENT_DIR.parent / "bridge"
 sys.path.insert(0, str(_AGENT_DIR))
 sys.path.insert(0, str(_BRIDGE_DIR))

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bridge"))
 
 import tool_functions
 
+# Mapping between the LLm anme for a tool and the actual callable function in tool_functions.py. 
 TOOLS = {
     "set_gpio": tool_functions.set_gpio,
     "read_gpio": tool_functions.read_gpio,
@@ -21,11 +22,14 @@ TOOLS = {
     "read_analog": tool_functions.read_analog,
     "set_pwm": tool_functions.set_pwm,
     "save_skill": tool_functions.save_skill,
+    "wait": tool_functions.wait,
+    "list_skills": tool_functions.list_skills,
+    "get_skill": tool_functions.get_skill,
 }
 
 
 def call_tool(name: str, arguments: dict) -> dict:
     """Dispatch a tool call by name. Unknown tools fail closed, not silently."""
-    if name not in TOOLS:
+    if name not in TOOLS: # tool doesnt exsist
         return {"success": False, "error": f"unknown tool: {name}", "raw_response": None}
     return TOOLS[name](**arguments)
