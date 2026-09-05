@@ -22,6 +22,7 @@ Section 1 distinction).
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 _AGENT_DIR = Path(__file__).resolve().parent
@@ -59,23 +60,73 @@ skill's full definition so you can inspect exactly what it contains.
 definition["type"] to "action_sequence", give it an "actions" list of {{"tool": <tool name>, "args": \
 {{...}}}} steps in the order they should run, and a "version" number.
 
+Before composing anything from scratch, always call list_skills() first, then get_skill() on any \
+skill that looks relevant, and reason about what you find in one of three ways:
+
+1. An existing skill's "actions" already contain a {{"tool": "repeat", "args": {{"count": ..., \
+"actions": [...]}}}} step -- it's already generalized and handles this kind of request for ANY \
+count. Resolve its parameter (substitute the requested count for "repeat"'s "count") and execute \
+the resulting concrete tool calls directly. Do NOT save anything -- you are reusing an existing \
+skill, not composing a new one.
+
+2. An existing skill is a FIXED, non-generalized version of the same kind of action but for a \
+DIFFERENT parameter (e.g. you're asked to blink 3 times and you already have a skill that blinks \
+some other fixed number of times, like 2). This is the same situation as #1 except the existing \
+skill hasn't been generalized yet -- recognize the structural similarity yourself, right now, \
+without waiting to be explicitly told to "generalize": rewrite its fixed "actions" into a \
+parameterized {{"tool": "repeat", "args": {{"count": <n>, "actions": [...]}}}} form, execute it for \
+the count actually requested, and save the generalized version back under that EXISTING skill's \
+name (get_skill first for its current version, save with version = existing + 1). Do not also save \
+a second, separate skill for this specific count -- the whole point is ending up with one \
+generalized skill covering both the original request and this one, not two fixed ones.
+
+3. Nothing existing -- generalized or fixed-but-similar -- covers this request. Only in this case do \
+you compose fresh from primitives and save a new skill (see below).
+
+When you DO compose and carry out a genuinely new action, always save it as a skill via save_skill -- \
+even a single-step action like turning the LED on or off, not just multi-step sequences. Give it a \
+short, descriptive snake_case name based on what you actually did (e.g. "led_on", "led_off", \
+"blink_twice") unless the prompt already told you exactly what name to save it under, in which case \
+use that name instead of inventing one. The "actions" list should be the exact tool calls you just \
+made, in order. save_skill silently overwrites whatever is already saved under that name, so if you \
+are reusing a name (e.g. re-running "turn the LED on"), first call get_skill(name) to check for an \
+existing version and save with version = (existing version + 1) instead of always saving version 1.
+
 When asked to generalize a skill, first call list_skills() and get_skill(...) on the relevant saved \
 skill to inspect what you actually saved -- reason from that real, persisted data, not from what you \
-remember saying earlier in this conversation.
+remember saying earlier in this conversation. Save the generalized version back under that SAME \
+skill's name (call get_skill first to get its current version, save with version = existing + 1) -- \
+do NOT invent a different name for it. Generalizing exists to reduce the number of skills saved, not \
+to keep both the original specific skill and a new general one around side by side; overwriting the \
+original with its generalized form is the entire point. Only save under a different name if the \
+request explicitly tells you what different name to use.
 
-Once you have completed the requested action (and saved a skill, if asked to), reply with one short \
-plain-text sentence summarizing what you did, and call no further tools.
+Once you have completed the requested action -- whether by reusing an existing generalized skill or \
+by composing and saving a new one -- reply with one short plain-text sentence summarizing what you \
+did (and say explicitly if you reused an existing skill rather than creating a new one), and call no \
+further tools.
 """
 
 
-def run_composition_task(goal: str) -> None:
+def run_composition_task(goal: str, on_event=None) -> None:
     """
     Runs one LLM-driven composition/generalization attempt end to end.
     Structurally similar to agent_loop.run_discovery()'s round-trip loop
     (send messages, handle tool calls, repeat until the model stops
     calling tools), but with no trail/error tracking -- this task has no
     numeric convergence target.
+
+    on_event, if given, is called as on_event(event_type, payload) around
+    each tool dispatch and the final plain-text reply -- same optional,
+    additive contract as agent_loop.run_discovery's hook (added later for
+    the dashboard) and briefing_task.run_briefing's. The existing CLI
+    __main__ below never passes one, so this stays a no-op for that call
+    path -- nothing about Stage 2/3/4's CLI behavior changes.
     """
+    def emit(event_type: str, payload: dict) -> None:
+        if on_event is not None:
+            on_event(event_type, payload)
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": goal},
@@ -95,6 +146,7 @@ def run_composition_task(goal: str) -> None:
         if not message.tool_calls:
             if message.content:
                 print(f"[agent] {message.content}")
+                emit("agent_message", {"text": message.content})
             break
 
         messages.append(message)
@@ -102,8 +154,15 @@ def run_composition_task(goal: str) -> None:
             name = tool_call.function.name
             args = json.loads(tool_call.function.arguments)
 
+            call_id = f"call_{time.time_ns()}"
+            emit("tool_call", {"call_id": call_id, "tool": name, "args": args, "status": "pending"})
+
+            start = time.perf_counter()
             result = registry.call_tool(name, args)
+            latency_ms = round((time.perf_counter() - start) * 1000, 1)
+
             print(f"  [tool] {name}({args}) -> {result}")
+            emit("tool_result", {"call_id": call_id, "tool": name, "result": result, "latency_ms": latency_ms, "status": "resolved"})
 
             messages.append(
                 {"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(result)}
@@ -118,7 +177,7 @@ _STAGE_GOALS = {
     "4": (
         "Look at your saved skills, and if you have one for blinking a fixed number of times, "
         "generalize it into a reusable skill that can blink the LED any number of times. "
-        "Save it as blink_n_times."
+        "Save the generalized version."
     ),
 }
 

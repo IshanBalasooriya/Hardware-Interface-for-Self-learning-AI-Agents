@@ -21,6 +21,7 @@ TOOLS = {
     "ping": tool_functions.ping,
     "read_analog": tool_functions.read_analog,
     "set_pwm": tool_functions.set_pwm,
+    "read_pwm": tool_functions.read_pwm,
     "save_skill": tool_functions.save_skill,
     "wait": tool_functions.wait,
     "list_skills": tool_functions.list_skills,

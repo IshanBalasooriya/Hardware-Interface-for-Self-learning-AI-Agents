@@ -80,6 +80,20 @@ TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
+            "name": "read_pwm",
+            "description": "Read a PWM-capable pin's actual current duty cycle (0-255) from hardware. Only works on pins the firmware allowlists.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pin": {"type": "integer", "description": "PWM-capable pin number."},
+                },
+                "required": ["pin"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "save_skill",
             "description": (
                 "Persist a discovered or composed skill to the skill library so it can be replayed "

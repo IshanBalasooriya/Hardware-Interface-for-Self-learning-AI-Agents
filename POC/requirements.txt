@@ -2,3 +2,8 @@
 pyserial
 python-dotenv
 openai
+
+# Backend server (agent/server.py) -- HTTP + WebSocket bridge to the
+# liquid-gas dashboard frontend, per BACKEND_INTEGRATION_CONTRACT.md
+fastapi
+uvicorn

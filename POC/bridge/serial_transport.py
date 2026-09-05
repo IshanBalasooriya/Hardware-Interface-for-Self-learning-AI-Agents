@@ -12,10 +12,20 @@ send() is called once per command, pushes text out, and blocks until a text repl
 — every other part of your system only ever interacts with the ESP32 through this one function.
 """
 
+import threading
 import time
 import serial
 
 _ser = None # module-level variable to hold the serial connection object
+
+# Guards the write+readline pair in send() below. Only matters once there's
+# more than one thread able to call send() against the same connection --
+# e.g. agent/server.py's background sensor-polling task running alongside
+# an active LLM-driven run's own tool calls, both via asyncio.to_thread
+# (real OS threads, not coroutines). Without this, two threads' write/read
+# pairs can interleave and one thread silently reads the *other* thread's
+# response -- corrupting both, with no error raised.
+_lock = threading.Lock()
 
 
 def connect(port: str, baud: int = 115200, timeout: float = 2.0) -> None:
@@ -32,8 +42,9 @@ def send(cmd: str) -> str:
     """Send one command line, return the single response line (raw string)."""
     if _ser is None:
         raise RuntimeError("Transport not connected -- call transport.connect() first.")
-    _ser.write((cmd + "\n").encode()) # convert the python string to raw bytes for transmission over the serial port
-    response = _ser.readline().decode(errors="ignore").strip() # Waits for a response line or times out from the firmware.
+    with _lock:
+        _ser.write((cmd + "\n").encode()) # convert the python string to raw bytes for transmission over the serial port
+        response = _ser.readline().decode(errors="ignore").strip() # Waits for a response line or times out from the firmware.
     if response == "":
         raise TimeoutError(f"No response from MCU for command: {cmd!r}")
     return response

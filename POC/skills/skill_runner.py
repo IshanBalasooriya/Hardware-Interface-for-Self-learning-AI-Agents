@@ -97,6 +97,58 @@ def print_evidence_table(trail: list) -> None:
         print(f"{i:5} | {row['duty']:4} | {row['reading']:7} | {row['error']:5}")
 
 
+def execute_action_sequence(name: str, **params) -> dict:
+    """
+    Deterministic replay of an action_sequence skill (e.g. blink_twice,
+    blink_n_times) via the same registry.call_tool() interface as execute()
+    above -- no LLM call involved. This is the optional executor flagged
+    (but not built) in CLAUDE_addendum_composition_stages.md section 5;
+    purely additive -- execute() and its call path are untouched.
+
+    A step whose "tool" is the literal "repeat" isn't a real registry tool --
+    it's the parameterized-loop shape the model itself invented when
+    generalizing blink_twice into blink_n_times (see skills/blink_n_times.json):
+    {"tool": "repeat", "args": {"count": <placeholder-or-literal>, "actions":
+    [...]}}. If "count" is a string, it's resolved against **params (e.g.
+    execute_action_sequence("blink_n_times", n=5) resolves a "count": "n"
+    placeholder to 5); an integer count is used as-is.
+    """
+    skill = load_skill(name)
+    if skill.get("type") != "action_sequence":
+        return {"success": False, "name": name, "error": f"{name!r} is not an action_sequence skill", "trail": []}
+
+    trail = []
+    ok = [True]  # mutable flag so the nested closure below can signal an abort across recursion
+
+    def run_steps(steps):
+        for step in steps:
+            if not ok[0]:
+                return
+            tool = step.get("tool")
+            args = step.get("args", {})
+            if tool == "repeat":
+                count = args.get("count")
+                if isinstance(count, str):
+                    count = params.get(count)
+                if count is None:
+                    ok[0] = False
+                    trail.append({"tool": "repeat", "error": f"unresolved 'count' parameter -- pass it as a keyword argument"})
+                    return
+                for _ in range(int(count)):
+                    if not ok[0]:
+                        return
+                    run_steps(args.get("actions", []))
+            else:
+                result = registry.call_tool(tool, args)
+                trail.append({"tool": tool, "args": args, "result": result})
+                if not result.get("success"):
+                    ok[0] = False
+                    return
+
+    run_steps(skill.get("actions", []))
+    return {"success": ok[0], "name": name, "steps_executed": len(trail), "trail": trail}
+
+
 if __name__ == "__main__":
     load_dotenv()
     port = os.environ.get("SERIAL_PORT")
@@ -105,11 +157,28 @@ if __name__ == "__main__":
     serial_transport.connect(port)
 
     skill_name = sys.argv[1] if len(sys.argv) > 1 else "maintain_light"
-    outcome = execute(skill_name)
-    print_evidence_table(outcome["trail"])
-    status = "converged" if outcome.get("converged") else "did not converge"
-    print(
-        f"\n[skill_runner] {skill_name}: {status} at duty={outcome['duty']} "
-        f"reading={outcome['reading']} error={outcome['error']} "
-        f"in {outcome['iterations']} iteration(s)"
-    )
+    extra_args = sys.argv[2:]
+
+    skill = load_skill(skill_name)
+    if skill.get("type") == "action_sequence":
+        params = {}
+        for arg in extra_args:
+            if "=" not in arg:
+                raise SystemExit(f"Expected key=value params for an action_sequence skill (e.g. n=5), got: {arg!r}")
+            key, value = arg.split("=", 1)
+            params[key] = int(value) if value.lstrip("-").isdigit() else value
+
+        outcome = execute_action_sequence(skill_name, **params)
+        status = "succeeded" if outcome["success"] else "failed"
+        print(f"\n[skill_runner] {skill_name}: {status}, {outcome['steps_executed']} step(s) executed")
+        for row in outcome["trail"]:
+            print(f"  {row}")
+    else:
+        outcome = execute(skill_name)
+        print_evidence_table(outcome["trail"])
+        status = "converged" if outcome.get("converged") else "did not converge"
+        print(
+            f"\n[skill_runner] {skill_name}: {status} at duty={outcome['duty']} "
+            f"reading={outcome['reading']} error={outcome['error']} "
+            f"in {outcome['iterations']} iteration(s)"
+        )

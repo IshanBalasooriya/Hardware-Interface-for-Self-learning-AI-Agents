@@ -70,6 +70,21 @@ def set_pwm(pin: int, duty: int) -> dict:
     return {"success": success, "pin": pin, "duty": duty, "raw_response": response}
 
 
+def read_pwm(pin: int) -> dict:
+    """
+    Tool: read a PWM-capable pin's actual current duty cycle (0-255) from
+    the firmware's LEDC peripheral -- the real hardware state, not a value
+    remembered on the Python side, so it stays correct across bridge/
+    dashboard restarts (which don't reset the ESP32's own PWM state).
+    """
+    response = serial_transport.send(f"READ_PWM {pin}")
+    success = response.startswith("OK")
+    value = None
+    if success and "VALUE=" in response:
+        value = int(response.split("VALUE=")[1])
+    return {"success": success, "pin": pin, "value": value, "raw_response": response}
+
+
 def wait(duration_ms: int) -> dict:
     """
     Tool: pure-Python delay -- no firmware round trip.
@@ -107,6 +122,12 @@ def get_skill(name: str) -> dict:
 
 _SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills") # .abspath(_file_) gives the absolute path to the current file, dirname gives the name of the directory of the current file (one layer up the file hierarchy)
 
+# Mirrors agent_loop.py's SENSOR_PIN/LED_PIN. Duplicated as a literal rather
+# than imported from agent_loop to avoid a circular import (agent_loop ->
+# registry -> tool_functions).
+_DEFAULT_SENSOR_PIN = 34
+_DEFAULT_ACTUATOR_PIN = 5
+
 # Required fields per skill "type". "light_policy" is the original shape
 # (target/tolerance/brightness/... from the self-tuning light task) and is
 # also the default when a definition omits "type" entirely, so every
@@ -141,6 +162,19 @@ def save_skill(name: str, definition: dict) -> dict:
     missing = required_fields - definition.keys() # Set difference to find any required fields that are not present in the provided definition.
     if missing:
         return {"success": False, "name": name, "error": f"missing fields: {sorted(missing)}", "raw_response": None}
+
+    # light_policy skills get sensor_pin/actuator_pin/timestamp filled in if
+    # the caller didn't set them -- the LLM is never asked to supply these
+    # (see agent_loop.py's SYSTEM_PROMPT), but the dashboard's skill_saved
+    # wire format wants them, so persist real values rather than leaving the
+    # backend to fall back to guessed defaults at serve time.
+    if skill_type == "light_policy":
+        definition = {
+            "sensor_pin": _DEFAULT_SENSOR_PIN,
+            "actuator_pin": _DEFAULT_ACTUATOR_PIN,
+            **definition,
+            "timestamp": definition.get("timestamp") or time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
     os.makedirs(_SKILLS_DIR, exist_ok=True) # Mke sure the skills directory exists before trying to write a file into it. exist_ok=True means it won't raise an error if the directory already exists.
     path = os.path.join(_SKILLS_DIR, f"{name}.json") # Creating thr skill name

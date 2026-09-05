@@ -17,6 +17,7 @@ evidence trail (duty/reading/error per adjustment) for Section 4.6's table.
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 _AGENT_DIR = Path(__file__).resolve().parent # absolute path to the directory containing this file
@@ -33,14 +34,19 @@ import tool_declarations
 
 load_dotenv()
 
-TARGET = 600
+TARGET = 1000
 TOLERANCE = 25
 MAX_ITERATIONS = 5
 
 SENSOR_PIN = 34
 LED_PIN = 5
+PWM_MAX = 255  # matches firmware's 8-bit ledc resolution (main.cpp PWM_RESOLUTION_BITS); single
+                # source of truth so nothing downstream (server.py, the dashboard) re-hardcodes it
 
-GOAL = "Maintain a target light level of 600."
+# Kept derived from TARGET rather than a separate literal so the goal text
+# the LLM reads can never drift out of sync with the constraint the system
+# prompt enforces (it previously said "600" here while TARGET was 1000).
+GOAL = f"Maintain a target light level of {TARGET}."
 
 SYSTEM_PROMPT = f"""You are the reasoning layer of a hardware agent. You can only affect the \
 physical world by calling the tools you're given -- you have no other way to act.
@@ -69,12 +75,23 @@ further tools.
 """
 
 
-def run_discovery(client: OpenAI, model: str, extra_context: str = "") -> list:
+def run_discovery(client: OpenAI, model: str, extra_context: str = "", on_event=None) -> list:
     """
     Runs one LLM-driven discovery attempt end to end. Returns the evidence
     trail: a list of {"duty": int, "reading": int, "error": int} dicts, one
     per set_pwm -> read_analog pair observed, in the order they happened.
+
+    on_event, if given, is called as on_event(event_type: str, payload: dict)
+    around each tool dispatch and sensor reading -- this is the hook the
+    dashboard backend (agent/server.py) uses to mirror this loop's real
+    activity onto the WebSocket wire contract in BACKEND_INTEGRATION_CONTRACT.md.
+    Optional and side-effect-free when omitted: every existing caller (this
+    file's own __main__, skill_runner.py) keeps behaving exactly as before.
     """
+    def emit(event_type: str, payload: dict) -> None:
+        if on_event is not None:
+            on_event(event_type, payload)
+
     user_content = GOAL if not extra_context else f"{GOAL}\n\n{extra_context}"
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -85,6 +102,8 @@ def run_discovery(client: OpenAI, model: str, extra_context: str = "") -> list:
     pending_duty = None
     adjustments_used = 0
     warned_exhausted = False
+    reading_count = 0
+    emitted_executing = False
 
     # Generous cap on LLM round trips -- an independent safety valve so a
     # confused model can't loop forever; distinct from the MAX_ITERATIONS
@@ -98,6 +117,14 @@ def run_discovery(client: OpenAI, model: str, extra_context: str = "") -> list:
         if not message.tool_calls:
             if message.content:
                 print(f"[agent] {message.content}")
+                # A model turn with no tool calls means it answered in plain
+                # text -- e.g. an informational prompt like "what can you
+                # see?" rather than a control goal. Emitted as its own event
+                # (distinct from "reasoning", which only ever accompanies a
+                # sensor_reading) so a listener like the dashboard can render
+                # it as a direct answer rather than treating this as a
+                # discovery run that happened to do nothing.
+                emit("agent_message", {"text": message.content})
             break
 
         messages.append(message)
@@ -109,12 +136,46 @@ def run_discovery(client: OpenAI, model: str, extra_context: str = "") -> list:
                 adjustments_used += 1
                 pending_duty = args.get("duty")
 
-            result = registry.call_tool(name, args)
-            print(f"  [tool] {name}({args}) -> {result}")
+            if not emitted_executing:
+                emitted_executing = True
+                emit("status", {"state": "EXECUTING", "message": "Dispatching tool calls", "stage": "Stage 2 (Discovery)"})
 
-            if name == "read_analog" and result.get("success") and pending_duty is not None:
+            call_id = f"call_{time.time_ns()}"
+            emit("tool_call", {"call_id": call_id, "tool": name, "args": args, "status": "pending"})
+
+            start = time.perf_counter()
+            try:
+                result = registry.call_tool(name, args)
+            except Exception as exc:
+                result = {"success": False, "error": str(exc), "raw_response": None}
+                latency_ms = round((time.perf_counter() - start) * 1000, 1)
+                print(f"  [tool] {name}({args}) -> EXCEPTION: {exc}")
+                emit("tool_result", {"call_id": call_id, "tool": name, "result": result, "latency_ms": latency_ms, "status": "resolved"})
+                raise
+
+            latency_ms = round((time.perf_counter() - start) * 1000, 1)
+            print(f"  [tool] {name}({args}) -> {result}")
+            emit("tool_result", {"call_id": call_id, "tool": name, "result": result, "latency_ms": latency_ms, "status": "resolved"})
+
+            if name == "read_analog" and result.get("success"):
                 reading = result.get("value")
-                trail.append({"duty": pending_duty, "reading": reading, "error": TARGET - reading})
+                error = TARGET - reading
+                reading_count += 1
+                if pending_duty is not None:
+                    trail.append({"duty": pending_duty, "reading": reading, "error": error})
+                emit("sensor_reading", {
+                    "iteration": reading_count,
+                    "value": reading,
+                    "target": TARGET,
+                    "tolerance": TOLERANCE,
+                    "duty": pending_duty if pending_duty is not None else 0,
+                    "error": error,
+                    "stage": "Stage 2 (Discovery)",
+                })
+                emit("reasoning", {
+                    "step": reading_count,
+                    "thought": f"Sensor pin {SENSOR_PIN} reads {reading} (target {TARGET}). Error is {error:+d}.",
+                })
 
             messages.append(
                 {"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(result)}

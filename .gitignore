@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Markdown docs (new/untracked only — already-tracked .md files are unaffected)
+# Ignore every .md file anywhere in the repo, except any file literally named README.md
+*.md
+!README.md
