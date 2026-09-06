@@ -14,8 +14,23 @@
 //
 // Pin allowlist is hard-coded here and is independent of and
 // non-overridable by the agent/bridge -- this is the firmware safety layer.
+//
+// Architecture B (asynchronous MQTT telemetry) is compiled in ONLY when
+// ENABLE_MQTT_TELEMETRY is defined -- see env:esp32doit-devkit-v1-mqtt in
+// platformio.ini. The default env builds none of it, so the synchronous
+// architecture above carries no WiFi/MQTT code and no broker dependency.
+// That build adds three further commands:
+//   TELEMETRY_START   -> OK  | ERR <reason>
+//   TELEMETRY_STOP    -> OK
+//   TELEMETRY_STATUS  -> OK STATE=<...> WIFI=<0|1> MQTT=<0|1> IP=<addr> ...
 
 #include <Arduino.h>
+
+#ifdef ENABLE_MQTT_TELEMETRY
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include "telemetry_config.h"
+#endif
 
 
 //Firmware safety layer: allowed list of pins that can be interacted with
@@ -35,6 +50,41 @@ void handleReadGpio(const String &rest);
 void handleSetPwm(const String &rest);
 void handleReadAdc(const String &rest);
 void handleReadPwm(const String &rest);
+
+#ifdef ENABLE_MQTT_TELEMETRY
+// --- Architecture B: asynchronous telemetry ------------------------------
+// The MCU samples the ADC and publishes on its own schedule, so observations
+// exist without the host ever issuing a READ_ADC.
+
+enum TelemetryState {
+  TELEM_OFF,        // disabled, or not yet started
+  TELEM_WIFI_WAIT,  // WiFi association in progress
+  TELEM_MQTT_WAIT,  // WiFi up, broker connection pending/retrying
+  TELEM_STREAMING   // publishing
+};
+
+static WiFiClient telemetryWifiClient;
+static PubSubClient mqttClient(telemetryWifiClient);
+
+static TelemetryState telemetryState = TELEM_OFF;
+static bool telemetryEnabled = TELEMETRY_AUTOSTART;
+static bool telemetryPinAllowed = false;
+static unsigned long lastPublishMs = 0;
+static unsigned long lastAttemptMs = 0;
+static bool firstAttempt = true;
+static unsigned long publishedCount = 0;
+static unsigned long failedPublishCount = 0;
+static char telemetryTopic[64];
+
+const unsigned long WIFI_RETRY_MS = 10000;
+const unsigned long MQTT_RETRY_MS = 5000;
+
+void telemetryService();
+void publishTelemetrySample(unsigned long now);
+void handleTelemetryStart();
+void handleTelemetryStop();
+void handleTelemetryStatus();
+#endif
 
 
 // Firmware safety layer: only allow commands on pins in the allowlist
@@ -63,6 +113,22 @@ void setup() {
   ledcAttachPin(ALLOWED_PWM_PINS[0], PWM_CHANNEL);
 #endif
 
+#ifdef ENABLE_MQTT_TELEMETRY
+  // Telemetry obeys the same allowlist as every serial command -- the safety
+  // layer is not bypassed just because the MCU initiated the read itself.
+  telemetryPinAllowed = isAllowed(TELEMETRY_ADC_PIN, ALLOWED_ADC_PINS,
+                                  sizeof(ALLOWED_ADC_PINS) / sizeof(int));
+  snprintf(telemetryTopic, sizeof(telemetryTopic),
+           "hardware/telemetry/adc/%d", TELEMETRY_ADC_PIN);
+  mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+  // connect() is the one blocking call in the telemetry path; a 1s socket
+  // timeout bounds how long an unreachable broker can stall serial handling.
+  mqttClient.setSocketTimeout(1);
+  if (!telemetryPinAllowed) {
+    telemetryEnabled = false;
+  }
+#endif
+
   Serial.println("ESP32_READY");
 }
 
@@ -75,6 +141,12 @@ void loop() {
       handleCommand(line);
     }
   }
+
+#ifdef ENABLE_MQTT_TELEMETRY
+  // Non-blocking: one state transition or at most one publish per pass, so
+  // serial commands stay responsive while telemetry streams.
+  telemetryService();
+#endif
 }
 
 
@@ -100,6 +172,14 @@ void handleCommand(const String &line) {
     handleReadAdc(rest);
   } else if (cmd == "READ_PWM") {
     handleReadPwm(rest);
+#ifdef ENABLE_MQTT_TELEMETRY
+  } else if (cmd == "TELEMETRY_START") {
+    handleTelemetryStart();
+  } else if (cmd == "TELEMETRY_STOP") {
+    handleTelemetryStop();
+  } else if (cmd == "TELEMETRY_STATUS") {
+    handleTelemetryStatus();
+#endif
   } else {
     Serial.println("ERR UNKNOWN_COMMAND");
   }
@@ -195,3 +275,139 @@ void handleReadPwm(const String &rest) {
   Serial.print("OK VALUE=");
   Serial.println(value);
 }
+
+
+#ifdef ENABLE_MQTT_TELEMETRY
+
+// Wraps around correctly at millis() rollover, unlike (now >= last + interval).
+static bool elapsed(unsigned long now, unsigned long last, unsigned long interval) {
+  return (unsigned long)(now - last) >= interval;
+}
+
+// Advances the telemetry connection/publish state machine by at most one step.
+// Every branch returns promptly -- there is no wait-until-connected loop, so
+// serial command handling continues even while WiFi or the broker is down.
+void telemetryService() {
+  if (!telemetryEnabled) {
+    if (telemetryState != TELEM_OFF) {
+      if (mqttClient.connected()) mqttClient.disconnect();
+      telemetryState = TELEM_OFF;
+    }
+    return;
+  }
+
+  unsigned long now = millis();
+
+  switch (telemetryState) {
+    case TELEM_OFF:
+      WiFi.mode(WIFI_STA);
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+      lastAttemptMs = now;
+      telemetryState = TELEM_WIFI_WAIT;
+      break;
+
+    case TELEM_WIFI_WAIT:
+      if (WiFi.status() == WL_CONNECTED) {
+        firstAttempt = true;
+        telemetryState = TELEM_MQTT_WAIT;
+      } else if (elapsed(now, lastAttemptMs, WIFI_RETRY_MS)) {
+        // Association failed or stalled; tear down and retry rather than
+        // sitting in a half-connected state forever.
+        WiFi.disconnect();
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        lastAttemptMs = now;
+      }
+      break;
+
+    case TELEM_MQTT_WAIT:
+      if (WiFi.status() != WL_CONNECTED) {
+        telemetryState = TELEM_OFF;
+        break;
+      }
+      if (firstAttempt || elapsed(now, lastAttemptMs, MQTT_RETRY_MS)) {
+        firstAttempt = false;
+        lastAttemptMs = now;
+        char clientId[32];
+        snprintf(clientId, sizeof(clientId), "esp32-telemetry-%06X",
+                 (unsigned int)(ESP.getEfuseMac() & 0xFFFFFF));
+        if (mqttClient.connect(clientId)) {
+          lastPublishMs = now;
+          telemetryState = TELEM_STREAMING;
+        }
+      }
+      break;
+
+    case TELEM_STREAMING:
+      if (WiFi.status() != WL_CONNECTED) {
+        telemetryState = TELEM_OFF;
+        break;
+      }
+      if (!mqttClient.connected()) {
+        firstAttempt = true;
+        telemetryState = TELEM_MQTT_WAIT;
+        break;
+      }
+      mqttClient.loop();
+      if (elapsed(now, lastPublishMs, TELEMETRY_PUBLISH_INTERVAL_MS)) {
+        lastPublishMs = now;
+        publishTelemetrySample(now);
+      }
+      break;
+  }
+}
+
+void publishTelemetrySample(unsigned long now) {
+  int value = analogRead(TELEMETRY_ADC_PIN);
+  // t_ms is uptime, not wall clock: the ESP32 has no RTC, so the backend
+  // stamps receive time and this preserves exact MCU-side sample spacing.
+  // seq lets the backend detect dropped messages.
+  char payload[128];
+  snprintf(payload, sizeof(payload),
+           "{\"source\":%d,\"value\":%d,\"t_ms\":%lu,\"seq\":%lu}",
+           TELEMETRY_ADC_PIN, value, now, publishedCount);
+  if (mqttClient.publish(telemetryTopic, payload)) {
+    publishedCount++;
+  } else {
+    failedPublishCount++;
+  }
+}
+
+void handleTelemetryStart() {
+  if (!telemetryPinAllowed) {
+    Serial.println("ERR PIN_NOT_ALLOWED");
+    return;
+  }
+  telemetryEnabled = true;
+  Serial.println("OK");
+}
+
+void handleTelemetryStop() {
+  telemetryEnabled = false;
+  Serial.println("OK");
+}
+
+void handleTelemetryStatus() {
+  const char *stateName = "OFF";
+  switch (telemetryState) {
+    case TELEM_OFF: stateName = telemetryEnabled ? "STARTING" : "OFF"; break;
+    case TELEM_WIFI_WAIT: stateName = "WIFI_WAIT"; break;
+    case TELEM_MQTT_WAIT: stateName = "MQTT_WAIT"; break;
+    case TELEM_STREAMING: stateName = "STREAMING"; break;
+  }
+  Serial.print("OK STATE=");
+  Serial.print(stateName);
+  Serial.print(" WIFI=");
+  Serial.print(WiFi.status() == WL_CONNECTED ? 1 : 0);
+  Serial.print(" MQTT=");
+  Serial.print(mqttClient.connected() ? 1 : 0);
+  Serial.print(" IP=");
+  Serial.print(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("none"));
+  Serial.print(" TOPIC=");
+  Serial.print(telemetryTopic);
+  Serial.print(" PUBLISHED=");
+  Serial.print(publishedCount);
+  Serial.print(" FAILED=");
+  Serial.println(failedPublishCount);
+}
+
+#endif  // ENABLE_MQTT_TELEMETRY

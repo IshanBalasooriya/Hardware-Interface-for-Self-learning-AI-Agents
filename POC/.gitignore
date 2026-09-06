@@ -1,5 +1,11 @@
 # Environment / secrets — never commit real credentials
 .env
+# WiFi SSID/password + broker IP for Architecture B firmware.
+# Commit telemetry_config.example.h instead.
+firmware/**/include/telemetry_config.h
+
+# Architecture B captured telemetry — runtime data, not source
+Temporaral_Context_Approach/logs/
 
 # Python
 __pycache__/

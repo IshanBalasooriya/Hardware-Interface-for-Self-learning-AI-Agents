@@ -7,3 +7,8 @@ openai
 # liquid-gas dashboard frontend, per BACKEND_INTEGRATION_CONTRACT.md
 fastapi
 uvicorn
+
+# Architecture B only (Temporaral_Context_Approach/telemetry_service.py) --
+# MQTT subscriber for the asynchronous sensor telemetry stream. The existing
+# synchronous architecture does not import this.
+paho-mqtt>=2.0
