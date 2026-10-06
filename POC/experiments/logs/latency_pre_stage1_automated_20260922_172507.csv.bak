@@ -1,0 +1,2 @@
+run_id,run_index,iteration,primitive,latency_ms
+20260922T172504,,1,ping,22.4

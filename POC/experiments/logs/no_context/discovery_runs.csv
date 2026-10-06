@@ -1,0 +1,6 @@
+run_id,run_index,iteration,timestamp,elapsed_s,duty_commanded,sensor_reading,target,tolerance,signed_error,absolute_error,within_tolerance
+run_no_context_20260922_171432_001,1,1,1790077488.421,12.988,128,674,850,25,176,176,False
+run_no_context_20260922_171432_001,1,2,1790077495.238,19.805,182,816,850,25,34,34,False
+run_no_context_20260922_171432_001,1,3,1790077502.523,27.09,193,865,850,25,-15,15,True
+run_no_context_20260922_171634_004,4,1,1790077608.291,11.276,205,864,850,25,-14,14,True
+run_no_context_20260922_171710_005,5,1,1790077648.083,14.475,200,832,850,25,18,18,True

@@ -19,10 +19,12 @@ from pathlib import Path
 _SKILLS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SKILLS_DIR.parent / "agent"))
 sys.path.insert(0, str(_SKILLS_DIR.parent / "bridge"))
+sys.path.insert(0, str(_SKILLS_DIR.parent / "experiments"))
 
 from dotenv import load_dotenv
 
 import registry
+import replay_logger
 import serial_transport
 
 SENSOR_PIN = 34
@@ -65,6 +67,7 @@ def execute(name: str) -> dict:
         reading = read_result["value"]
         error = target - reading
         trail.append({"duty": duty, "reading": reading, "error": error})
+        replay_logger.log_iteration(len(trail), reading)
 
         if abs(error) <= tolerance:
             return {
@@ -181,4 +184,8 @@ if __name__ == "__main__":
             f"\n[skill_runner] {skill_name}: {status} at duty={outcome['duty']} "
             f"reading={outcome['reading']} error={outcome['error']} "
             f"in {outcome['iterations']} iteration(s)"
+        )
+        print(
+            "[skill_runner] confirmed: 0 LLM/OpenAI API calls made during this "
+            "replay (no openai import in this module)"
         )

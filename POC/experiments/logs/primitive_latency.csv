@@ -1,0 +1,6 @@
+cycle_index,timestamp,argument_pin,on_duty,off_duty,on_latency_ms,off_latency_ms,latency_ms,success,raw_response
+1,1790211383.979,5,255,0,14.11,11.83,25.94,True,ON:OK | OFF:OK
+2,1790211384.009,5,255,0,15.08,13.68,28.76,True,ON:OK | OFF:OK
+3,1790211384.036,5,255,0,15.08,12.2,27.28,True,ON:OK | OFF:OK
+4,1790211384.063,5,255,0,12.24,14.67,26.91,True,ON:OK | OFF:OK
+5,1790211384.088,5,255,0,10.17,14.02,24.19,True,ON:OK | OFF:OK

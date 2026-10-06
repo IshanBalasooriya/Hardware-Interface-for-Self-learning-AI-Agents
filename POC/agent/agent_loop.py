@@ -14,6 +14,7 @@ loop, enforces the iteration cap as a hard safety valve, and logs the
 evidence trail (duty/reading/error per adjustment) for Section 4.6's table.
 """
 
+import argparse
 import json
 import os
 import sys
@@ -22,19 +23,22 @@ from pathlib import Path
 
 _AGENT_DIR = Path(__file__).resolve().parent # absolute path to the directory containing this file
 _BRIDGE_DIR = _AGENT_DIR.parent / "bridge"
+_EXPERIMENTS_DIR = _AGENT_DIR.parent / "experiments"
 sys.path.insert(0, str(_AGENT_DIR))
 sys.path.insert(0, str(_BRIDGE_DIR))
+sys.path.insert(0, str(_EXPERIMENTS_DIR))
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
+import discovery_logger
 import registry
 import serial_transport
 import tool_declarations
 
 load_dotenv()
 
-TARGET = 1000
+TARGET = 850
 TOLERANCE = 25
 MAX_ITERATIONS = 5
 
@@ -72,10 +76,27 @@ tolerance, brightness (the final duty you settled on), iterations (how many adju
 took), final_error (target minus the last reading), and version (1, unless told otherwise).
 - After saving, reply with one short plain-text sentence summarizing what you found, and call no \
 further tools.
+- Saturation cases. The sensor also sees ambient light, so the LED alone may be unable to reach \
+the target:
+  * Too dim: the reading is still BELOW the target at maximum duty ({PWM_MAX}).
+  * Too bright: the reading is still ABOVE the target even at minimum duty (0, LED off) -- \
+ambient light alone already exceeds the target. If your readings are above the target, you must \
+try duty 0 before concluding anything, since lowering the duty is the only thing that can bring \
+the reading down.
+  In either case, your final sentence MUST say explicitly that it is too dim / too bright and that \
+the maximum / minimum allowed duty values are not enough to reach the target -- do not just \
+report the final duty and error.
 """
 
 
-def run_discovery(client: OpenAI, model: str, extra_context: str = "", on_event=None) -> list:
+def run_discovery(
+    client: OpenAI,
+    model: str,
+    extra_context: str = "",
+    on_event=None,
+    run_id: str = None,
+    run_index: int = None,
+) -> list:
     """
     Runs one LLM-driven discovery attempt end to end. Returns the evidence
     trail: a list of {"duty": int, "reading": int, "error": int} dicts, one
@@ -87,6 +108,13 @@ def run_discovery(client: OpenAI, model: str, extra_context: str = "", on_event=
     activity onto the WebSocket wire contract in BACKEND_INTEGRATION_CONTRACT.md.
     Optional and side-effect-free when omitted: every existing caller (this
     file's own __main__, skill_runner.py) keeps behaving exactly as before.
+
+    run_id/run_index, if given, override the auto-generated run_id and are
+    written into every logged row (used by
+    experiments/run_stage1_automated.py to correlate this run's discovery
+    log rows with its own MQTT/latency/summary CSVs). Omitting them
+    reproduces prior behavior exactly -- a fresh discovery_logger-generated
+    run_id and blank run_index.
     """
     def emit(event_type: str, payload: dict) -> None:
         if on_event is not None:
@@ -98,7 +126,10 @@ def run_discovery(client: OpenAI, model: str, extra_context: str = "", on_event=
         {"role": "user", "content": user_content},
     ]
 
+    run_id = run_id or discovery_logger.new_run_id()
+    run_start_ts = time.time()
     trail = []
+    csv_rows = []
     pending_duty = None
     adjustments_used = 0
     warned_exhausted = False
@@ -163,6 +194,22 @@ def run_discovery(client: OpenAI, model: str, extra_context: str = "", on_event=
                 reading_count += 1
                 if pending_duty is not None:
                     trail.append({"duty": pending_duty, "reading": reading, "error": error})
+                    row_ts = round(time.time(), 3)
+                    absolute_error = abs(error)
+                    csv_rows.append({
+                        "run_id": run_id,
+                        "run_index": run_index,
+                        "iteration": len(trail),
+                        "timestamp": row_ts,
+                        "elapsed_s": round(row_ts - run_start_ts, 3),
+                        "duty_commanded": pending_duty,
+                        "sensor_reading": reading,
+                        "target": TARGET,
+                        "tolerance": TOLERANCE,
+                        "signed_error": error,
+                        "absolute_error": absolute_error,
+                        "within_tolerance": absolute_error <= TOLERANCE,
+                    })
                 emit("sensor_reading", {
                     "iteration": reading_count,
                     "value": reading,
@@ -193,6 +240,12 @@ def run_discovery(client: OpenAI, model: str, extra_context: str = "", on_event=
                 }
             )
 
+    # Only reached if the loop above completes without raising (normal
+    # finish or MAX_ITERATIONS exhaustion) -- a run that crashes (e.g. a
+    # serial TimeoutError) never reaches this line, so its partial data is
+    # never persisted, per STAGE_1_discovery_convergence.md's "do not log
+    # this as data" rule for connection faults.
+    discovery_logger.log_run(csv_rows)
     return trail
 
 
@@ -204,6 +257,26 @@ def print_evidence_table(trail: list) -> None:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the closed-loop light-level discovery agent.")
+    parser.add_argument(
+        "--use-rolling-window",
+        action="store_true",
+        help=(
+            "Seed the run with recent readings from Architecture B's rolling "
+            "window file, if present. Off by default; omitting this flag "
+            "reproduces prior behavior exactly."
+        ),
+    )
+    parser.add_argument(
+        "--rolling-window-file",
+        default=os.environ.get(
+            "MQTT_ROLLING_WINDOW_FILE",
+            str(_AGENT_DIR.parent / "Temporaral_Context_Approach" / "logs" / "rolling_window.txt"),
+        ),
+        help="path to the rolling-window file (only used with --use-rolling-window)",
+    )
+    args = parser.parse_args()
+
     port = os.environ.get("SERIAL_PORT")
     if not port:
         raise SystemExit("Set SERIAL_PORT in your .env (e.g. SERIAL_PORT=COM5) before running the agent loop.")
@@ -214,8 +287,20 @@ def main():
         api_key=os.environ["OPENAI_API_KEY"],
     )
 
+    extra_context = ""
+    if args.use_rolling_window:
+        sys.path.insert(0, str(_AGENT_DIR.parent / "Temporaral_Context_Approach"))
+        from rolling_window_reader import load_rolling_window, format_rolling_window
+        records = load_rolling_window(args.rolling_window_file)
+        extra_context = format_rolling_window(records)
+        if extra_context:
+            print(f"[agent] seeded with {len(records)} readings from rolling window")
+        else:
+            print(f"[agent] --use-rolling-window set but no data at {args.rolling_window_file} "
+                  "(is telemetry_service.py running?)")
+
     print(f"[agent] goal: {GOAL}")
-    trail = run_discovery(client, model="gpt-5.5")
+    trail = run_discovery(client, model="gpt-5.5", extra_context=extra_context)
     print_evidence_table(trail)
 
 

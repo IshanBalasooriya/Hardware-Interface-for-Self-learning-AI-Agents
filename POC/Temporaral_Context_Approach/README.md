@@ -23,11 +23,13 @@ not depend on any of this. Neither architecture requires the other to run.
 
 | File | Purpose |
 |---|---|
-| `telemetry_service.py` | MQTT subscriber → validates → appends to `logs/adc_stream.txt` |
+| `telemetry_service.py` | MQTT subscriber → validates → appends to `logs/adc_stream.txt` + updates `logs/rolling_window.txt` |
 | `mock_publisher.py` | Debug-only fake publisher. Not part of the real runtime path |
 | `mosquitto.conf` | Broker config: binds `0.0.0.0:1884`, anonymous access |
 | `setup_firewall.ps1` | One-time elevated step so the ESP32 can reach the broker |
-| `logs/adc_stream.txt` | Captured telemetry (gitignored, created on first run) |
+| `rolling_window_reader.py` | Read-only helper for `rolling_window.txt`, used by `agent/agent_loop.py --use-rolling-window` |
+| `logs/adc_stream.txt` | Full, unbounded telemetry history (gitignored, created on first run) |
+| `logs/rolling_window.txt` | Bounded window of only the most recent readings (gitignored, created on first run) |
 
 ## One-time setup
 
@@ -107,6 +109,38 @@ JSON-per-line. `timestamp` is backend receive time (the ESP32 has no RTC);
 Topic is `hardware/telemetry/adc/34` — hardware-descriptive, never
 interpreted meaning. The backend subscribes to `hardware/telemetry/adc/+` so
 it stays pin-generic.
+
+### Rolling window
+
+Alongside the full log, the backend maintains `logs/rolling_window.txt` —
+bounded to only the most recent readings (default 50, configurable via
+`--window-size N` or `MQTT_ROLLING_WINDOW_SIZE`). The window is kept in
+memory (a `collections.deque`), never recomputed from `adc_stream.txt`; the
+file is just that window mirrored to disk on every update, oldest entries
+silently evicted once the limit is reached — the file always reflects only
+the *current* window, never a history of past windows.
+
+Unlike the full log, this file's format is deliberately **not** the same
+JSON schema — it's optimized for direct LLM prompt consumption instead of
+fidelity: a single comment line explaining the format, then one bare integer
+reading per line, **newest first (top) to oldest (bottom)** — recency is
+encoded by position, so no per-line timestamp/seq/topic is needed. Example:
+```text
+# Rolling window: 5 most recent sensor readings, newest first (top) to oldest (bottom). One reading value per line. Generated 20:50:05.
+2464
+2407
+2348
+2288
+2228
+```
+This is what `agent/agent_loop.py --use-rolling-window` reads via
+`rolling_window_reader.py` to seed a discovery run with recent history — see
+the root `POC/agent/agent_loop.py` and this directory's
+`rolling_window_reader.py` for that integration.
+
+```bash
+../.venv/Scripts/python.exe telemetry_service.py --window-size 100
+```
 
 ## Running Architecture A (unchanged)
 

@@ -1,0 +1,2 @@
+cycle_index,timestamp,argument_pin,on_duty,off_duty,on_latency_ms,off_latency_ms,latency_ms,success,raw_response
+
