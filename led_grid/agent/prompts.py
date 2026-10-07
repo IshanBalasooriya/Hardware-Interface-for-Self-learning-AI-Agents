@@ -1,7 +1,9 @@
 """System prompt, generated from config so pins and bit order are never hand-typed."""
 
-from config import (CLOCK_PIN, DATA_PIN, DEFAULT_INTENSITY, GROUP_SIZE, LATCH_PIN, MAX_HISTORY,
-                    MAX_SHIFT_BYTES, MSB_IS_LEFT, WAKE_HEX)
+import json
+
+from config import (CLEAR_HEX, CLOCK_PIN, DATA_PIN, DEFAULT_INTENSITY, GROUP_SIZE, LATCH_PIN, MAX_HISTORY,
+                    MAX_SHIFT_BYTES, MAX_WAIT_MS, MSB_IS_LEFT, WAKE_HEX)
 
 WORD_FRAME_WAIT_MS = 600
 
@@ -11,11 +13,38 @@ def _row_byte(row: str) -> int:
     return int(row if MSB_IS_LEFT else row[::-1], 2)
 
 
+def _example_shift(data_hex: str) -> dict:
+    return {"tool": "shift_out", "args": {"data_pin": DATA_PIN, "clock_pin": CLOCK_PIN, "latch_pin": LATCH_PIN,
+                                         "group_size": GROUP_SIZE, "data_hex": data_hex}}
+
+
+# A complete skill that passes skills.store.validate: the top-left LED blinks 3 times.
+_TOP_LEFT_HEX = f"01{_row_byte('10000000'):02X}" + "".join(f"{reg:02X}00" for reg in range(2, 9))
+SKILL_EXAMPLE: dict = {
+    "type": "action_sequence",
+    "description": "Top-left LED blinks 3 times",
+    "actions": [{"tool": "repeat", "args": {"count": 3, "actions": [
+        _example_shift(_TOP_LEFT_HEX),
+        {"tool": "wait", "args": {"duration_ms": 300}},
+        _example_shift(CLEAR_HEX),
+        {"tool": "wait", "args": {"duration_ms": 300}},
+    ]}}],
+}
+SKILL_KEYS_RULE = (
+    "A skill definition has only these top-level keys: type (always 'action_sequence'), description, "
+    "params (optional) and actions. Every action is exactly {\"tool\": ..., \"args\": {...}}. shift_out args "
+    "are exactly data_pin, clock_pin, latch_pin, group_size, data_hex. wait args are exactly duration_ms "
+    f"(0..{MAX_WAIT_MS}). repeat args are exactly count (1..1000) and actions (at most 3 repeats nested). "
+    "No other keys are allowed anywhere; the version is set by the store."
+)
+
+
 def build_system_prompt() -> str:
     example_row = "11000000"
     example_byte = _row_byte(example_row)
     leftmost_bit = "bit 7 (the most significant bit)" if MSB_IS_LEFT else "bit 0 (the least significant bit)"
     frame_hex_len = 8 * GROUP_SIZE * 2
+    frame_template = "".join(f"{reg:02X}[r{reg - 1}]" for reg in range(1, 9))
     pins = f"data_pin {DATA_PIN}, clock_pin {CLOCK_PIN}, latch_pin {LATCH_PIN}, group_size {GROUP_SIZE}"
 
     sections = [
@@ -41,16 +70,28 @@ def build_system_prompt() -> str:
         f"and '1' means lit. The leftmost LED is {leftmost_bit} of the row byte. Example: the row "
         f"{example_row} (two leftmost LEDs lit) is the byte 0x{example_byte:02X}, so on the top row the "
         f"message is 01{example_byte:02X}. A full frame is 8 messages in one shift_out call: "
-        f"{frame_hex_len} hex characters ({MAX_SHIFT_BYTES} bytes at most per call).",
+        f"{frame_hex_len} hex characters ({MAX_SHIFT_BYTES} bytes at most per call). The 8 messages are "
+        f"registers 01 to 08 in that order, each exactly once: {frame_template} ([rN] = the byte of picture "
+        "row N, row 0 = top). A repeated or missing register shifts the picture.",
 
         "## Procedure for drawing\n"
         "- First call list_skills. If a suitable skill exists, use reuse_skill.\n"
         "- Otherwise state in one or two sentences what you will draw, then send one full frame per "
         f"shift_out call ({pins}).\n"
-        "- After every shift_out, compare decoded_state.rows with the intended picture row by row. If a row "
-        "differs, resend only that row (one 2-byte message).\n"
+        "- After every shift_out, compare all 8 rows of decoded_state.rows with your 8 intended rows. If "
+        "exactly one row differs, resend only that row (one 2-byte message). If several rows differ, the "
+        "register sequence is wrong: rebuild the full frame with registers 01 to 08 in order and resend it. "
+        "Do not call save_skill until all 8 rows match.\n"
         f"- If decoded_state.display is not 'on', send the wake-up sequence {WAKE_HEX} first.\n"
         "- When the picture is correct and reusable, save_skill it with a short description.",
+
+        "## Intent\n"
+        "Every shift_out, save_skill and reuse_skill call must include the intent argument: one short "
+        "sentence saying what the call is for, e.g. \"Draw the full smiley face frame.\" It is shown to "
+        "the user and is never saved into skills.",
+
+        "## Skill JSON\n"
+        f"{SKILL_KEYS_RULE} A complete, valid example:\n{json.dumps(SKILL_EXAMPLE)}",
 
         "## Conventions\n"
         "Letters and digits are 5 columns wide and 7 rows tall, using columns 1 to 5 and rows 0 to 6 "
@@ -65,7 +106,9 @@ def build_system_prompt() -> str:
 
         "## Animations\n"
         "Build and check each frame with its own shift_out call first. Then save all frames with wait "
-        "steps inside a repeat. Then play it with reuse_skill.",
+        "steps inside a repeat. Then play it with reuse_skill. Use repeat for repeated frames: put one "
+        "cycle (its frames and waits) inside one repeat whose count is the number of repetitions. Never "
+        "write the same frames out more than once.",
 
         "## History\n"
         "read_shift_state shows the current picture at any time. read_recent_frames shows what was "

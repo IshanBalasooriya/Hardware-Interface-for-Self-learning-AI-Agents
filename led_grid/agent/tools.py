@@ -1,8 +1,10 @@
 """Tool registry: the only path from the LLM to hardware and files (master sections 6.4, 6.5)."""
 
 from dataclasses import dataclass
+import json
 from typing import Callable
 
+from agent.prompts import SKILL_EXAMPLE, SKILL_KEYS_RULE
 from bridge.bridge import Bridge
 from config import MAX_HISTORY, MAX_SHIFT_BYTES, MAX_WAIT_MS
 from skills.runner import run_skill
@@ -10,6 +12,7 @@ from skills.store import SkillError, SkillStore
 
 MAX_ERROR_LEN = 200
 SKILL_NAME_PATTERN = "^[a-z0-9_]{1,40}$"
+INTENT_TOOLS = ("shift_out", "save_skill", "reuse_skill")
 
 
 @dataclass
@@ -30,6 +33,7 @@ def _schema(name: str, description: str, properties: dict, required: list[str] |
 
 
 _PIN = {"type": "integer", "minimum": 0, "maximum": 39}
+_INTENT = {"type": "string", "description": "One short sentence: what this call is for."}
 
 TOOL_SCHEMAS: list[dict] = [
     _schema("shift_out",
@@ -39,7 +43,9 @@ TOOL_SCHEMAS: list[dict] = [
             {"data_pin": _PIN, "clock_pin": _PIN, "latch_pin": _PIN,
              "group_size": {"type": "integer", "minimum": 1, "maximum": MAX_SHIFT_BYTES},
              "data_hex": {"type": "string", "pattern": f"^([0-9A-Fa-f]{{2}}){{1,{MAX_SHIFT_BYTES}}}$",
-                          "description": "Bytes to send as hex, e.g. '0C01'."}}),
+                          "description": "Bytes to send as hex, e.g. '0C01'."},
+             "intent": _INTENT},
+            required=["data_pin", "clock_pin", "latch_pin", "group_size", "data_hex"]),
     _schema("wait", "Pause for a number of milliseconds without sending anything.",
             {"duration_ms": {"type": "integer", "minimum": 0, "maximum": MAX_WAIT_MS}}),
     _schema("read_shift_state",
@@ -51,13 +57,17 @@ TOOL_SCHEMAS: list[dict] = [
             {"name": {"type": "string", "pattern": SKILL_NAME_PATTERN}}),
     _schema("save_skill",
             "Save a skill: a JSON action sequence of shift_out, wait and repeat steps. "
-            "Saving an existing name creates a new version.",
+            f"Saving an existing name creates a new version. {SKILL_KEYS_RULE} "
+            f"A complete, valid definition: {json.dumps(SKILL_EXAMPLE)}",
             {"name": {"type": "string", "pattern": SKILL_NAME_PATTERN},
              "definition": {"type": "object", "description": "Skill JSON with type 'action_sequence', "
-                            "optional description and params, and a non-empty actions list."}}),
+                            "optional description and params, and a non-empty actions list."},
+             "intent": _INTENT},
+            required=["name", "definition"]),
     _schema("reuse_skill", "Replay a saved skill on the hardware, optionally overriding its params.",
             {"skill_name": {"type": "string", "pattern": SKILL_NAME_PATTERN},
-             "params": {"type": "object", "description": "Values for the skill's $name placeholders."}},
+             "params": {"type": "object", "description": "Values for the skill's $name placeholders."},
+             "intent": _INTENT},
             required=["skill_name"]),
 ]
 
@@ -72,6 +82,15 @@ _ARGS: dict[str, tuple[dict, dict]] = {
     "save_skill": ({"name": str, "definition": dict}, {}),
     "reuse_skill": ({"skill_name": str}, {"params": dict}),
 }
+
+
+def split_intent(name: str, args: dict) -> tuple[str | None, dict]:
+    """Remove the optional 'intent' note before dispatch. Returns (intent or None, remaining args)."""
+    if name not in INTENT_TOOLS or "intent" not in args:
+        return None, args
+    intent = args["intent"]
+    rest = {k: v for k, v in args.items() if k != "intent"}
+    return (intent.strip() or None) if isinstance(intent, str) else None, rest
 
 
 def _has_type(value: object, expected: type) -> bool:

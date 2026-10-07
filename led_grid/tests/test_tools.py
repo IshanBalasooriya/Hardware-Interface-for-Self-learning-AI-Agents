@@ -1,11 +1,14 @@
+import json
+
 import pytest
 
-from agent.tools import TOOL_SCHEMAS, AgentContext, call_tool
+from agent.prompts import SKILL_EXAMPLE
+from agent.tools import INTENT_TOOLS, TOOL_SCHEMAS, AgentContext, call_tool, split_intent
 from bridge.bridge import Bridge
 from bridge.grid_model import Max7219Model
 from bridge.grid_store import GridStore
 from bridge.transport import FakeTransport
-from skills.store import SkillStore
+from skills.store import SkillStore, validate
 
 HEART_HEX = "0100026603FF04FF057E063C07180800"
 CHECKER_HEX = "01AA025503AA045505AA065507AA0855"
@@ -41,6 +44,41 @@ def test_schemas_match_tool_list():
         assert schema["type"] == "function"
         assert schema["function"]["description"]
         assert schema["function"]["parameters"]["type"] == "object"
+
+
+def test_skill_example_is_valid_and_complete():
+    validate(SKILL_EXAMPLE)
+    repeat = SKILL_EXAMPLE["actions"][0]
+    assert repeat["tool"] == "repeat"
+    assert isinstance(repeat["args"]["count"], int) and repeat["args"]["count"] > 1
+    assert {a["tool"] for a in repeat["args"]["actions"]} == {"shift_out", "wait"}
+
+
+def test_save_skill_description_shows_example():
+    schema = next(s["function"] for s in TOOL_SCHEMAS if s["function"]["name"] == "save_skill")
+    assert json.dumps(SKILL_EXAMPLE) in schema["description"]
+    assert "No other keys are allowed" in schema["description"]
+
+
+def test_intent_is_optional_on_three_tools_only():
+    for schema in TOOL_SCHEMAS:
+        params = schema["function"]["parameters"]
+        if schema["function"]["name"] in INTENT_TOOLS:
+            assert params["properties"]["intent"]["type"] == "string"
+            assert "intent" not in params["required"]
+        else:
+            assert "intent" not in params["properties"]
+
+
+@pytest.mark.parametrize("name, args, expected", [
+    ("shift_out", {"intent": " Draw it. ", "data_hex": "0C01"}, ("Draw it.", {"data_hex": "0C01"})),
+    ("reuse_skill", {"skill_name": "a"}, (None, {"skill_name": "a"})),
+    ("save_skill", {"intent": 5, "name": "a"}, (None, {"name": "a"})),
+    ("save_skill", {"intent": "  ", "name": "a"}, (None, {"name": "a"})),
+    ("wait", {"intent": "Pause.", "duration_ms": 1}, (None, {"intent": "Pause.", "duration_ms": 1})),
+])
+def test_split_intent(name, args, expected):
+    assert split_intent(name, args) == expected
 
 
 def test_shift_out_success(ctx):

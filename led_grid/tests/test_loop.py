@@ -155,3 +155,36 @@ def test_on_event_exceptions_are_ignored(ctx):
     client = ScriptedClient([reply(None, [shift("c1", HEART_HEX)]), reply("Done.")])
     result = run_agent("Draw a heart", ctx, bad_listener, client=client, model="m")
     assert result["status"] == "completed"
+
+
+def test_intent_emitted_before_tool_call_and_stripped(ctx):
+    args = {**json.loads(shift("c1", HEART_HEX).function.arguments), "intent": "Draw the heart frame."}
+    client = ScriptedClient([reply(None, [call("c1", "shift_out", args)]), reply("Done.")])
+    result, events = run(ctx, client)
+    assert result == {"status": "completed", "summary": "Done.", "error": None}
+    assert [e["type"] for e in events] == ["agent_message", "tool_call", "tool_result", "agent_message"]
+    assert events[0] == {"type": "agent_message", "text": "Draw the heart frame."}
+    assert "intent" not in events[1]["args"]
+    assert events[2]["result"]["success"] is True
+    assert ctx.bridge.transport.device.sent[-1][2].hex().upper() == HEART_HEX
+
+
+def test_saved_skill_has_no_intent(ctx):
+    definition = {"type": "action_sequence", "actions": [
+        {"tool": "shift_out", "args": {"data_pin": 25, "clock_pin": 26, "latch_pin": 27,
+                                       "group_size": 2, "data_hex": HEART_HEX}}]}
+    client = ScriptedClient([reply(None, [call("c1", "save_skill", {
+        "name": "symbol_heart", "definition": definition, "intent": "Save the heart."})]), reply("Saved.")])
+    _result, events = run(ctx, client)
+    assert [e["type"] for e in events] == ["agent_message", "tool_call", "tool_result", "skill_saved",
+                                           "agent_message"]
+    text = (ctx.skills.directory / "symbol_heart.json").read_text(encoding="utf-8")
+    assert "intent" not in text
+
+
+def test_intent_on_other_tool_is_bad_args(ctx):
+    client = ScriptedClient([reply(None, [call("c1", "wait", {"duration_ms": 1, "intent": "Pause."})]),
+                             reply("Done.")])
+    _result, events = run(ctx, client)
+    assert [e["type"] for e in events] == ["tool_call", "tool_result", "agent_message"]
+    assert events[1]["result"] == {"success": False, "error": "bad_args: unexpected argument 'intent'"}

@@ -8,7 +8,7 @@ from typing import Callable
 from openai import OpenAI
 
 from agent.prompts import build_system_prompt
-from agent.tools import TOOL_SCHEMAS, AgentContext, call_tool
+from agent.tools import TOOL_SCHEMAS, AgentContext, call_tool, split_intent
 from config import LLM_MODEL, MAX_TURNS, OPENAI_API_KEY, OPENAI_BASE_URL
 
 MAX_ERROR_LEN = 200
@@ -78,6 +78,10 @@ def run_agent(prompt: str, ctx: AgentContext, on_event: Callable[[dict], None],
                 return stopped()
             name = tc.function.name
             args = _parse_args(tc.function.arguments)
+            if args is not None:
+                intent, args = split_intent(name, args)
+                if intent:
+                    _emit(on_event, {"type": "agent_message", "text": intent})
             _emit(on_event, {"type": "tool_call", "call_id": tc.id, "tool": name,
                              "args": args if args is not None else tc.function.arguments})
             started = time.monotonic()
