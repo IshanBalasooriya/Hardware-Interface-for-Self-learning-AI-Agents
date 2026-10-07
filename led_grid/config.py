@@ -12,7 +12,7 @@ DATA_PIN = 25
 CLOCK_PIN = 26
 LATCH_PIN = 27
 GROUP_SIZE = 2
-MSB_IS_LEFT = True
+MSB_IS_LEFT = True  # calibrated in stage 3, see docs/WIRING.md
 
 BAUD = 115200
 SERIAL_TIMEOUT_S = 2.0
