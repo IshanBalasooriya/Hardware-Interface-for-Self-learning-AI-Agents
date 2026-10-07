@@ -93,8 +93,8 @@ class Bridge:
                 self.transport.close()
                 self.transport.connect()
                 self.connected = True
-            except Exception:
-                logger.exception("Reconnect failed")
+            except Exception as e:
+                logger.warning("Reconnect failed: %s", e)
                 self.connected = False
         if self.connected:
             self.resync()

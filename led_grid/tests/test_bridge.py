@@ -127,3 +127,20 @@ def test_transport_error(tmp_path):
     assert result == {"success": False, "error": "timeout"}
     assert bridge.connected is False
     assert bridge.store.current() == before
+
+
+class UnpluggedTransport(FakeTransport):
+    def connect(self) -> None:
+        raise TransportError("connect to COM6 failed: port not found")
+
+
+def test_reconnect_failure_logs_one_line(tmp_path, caplog):
+    bridge = Bridge(UnpluggedTransport(), make_store(tmp_path))
+    with caplog.at_level("DEBUG", logger="bridge.bridge"):
+        assert bridge.reconnect() is False
+    assert bridge.connected is False
+    assert len(caplog.records) == 1
+    record = caplog.records[0]
+    assert record.levelname == "WARNING"
+    assert record.exc_info is None
+    assert record.getMessage() == "Reconnect failed: connect to COM6 failed: port not found"

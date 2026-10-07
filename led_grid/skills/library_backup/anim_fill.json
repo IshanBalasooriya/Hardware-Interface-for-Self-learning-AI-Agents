@@ -1,0 +1,145 @@
+{
+  "type": "action_sequence",
+  "version": 1,
+  "description": "Animation: rows light one by one from bottom to top, then clear.",
+  "actions": [
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "010002000300040005000600070008FF"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 150
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01000200030004000500060007FF08FF"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 150
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "0100020003000400050006FF07FF08FF"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 150
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "010002000300040005FF06FF07FF08FF"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 150
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01000200030004FF05FF06FF07FF08FF"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 150
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "0100020003FF04FF05FF06FF07FF08FF"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 150
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "010002FF03FF04FF05FF06FF07FF08FF"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 150
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01FF02FF03FF04FF05FF06FF07FF08FF"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 300
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01000200030004000500060007000800"
+      }
+    }
+  ]
+}

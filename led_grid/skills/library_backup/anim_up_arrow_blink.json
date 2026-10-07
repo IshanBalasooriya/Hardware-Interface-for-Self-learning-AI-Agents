@@ -1,12 +1,12 @@
 {
   "type": "action_sequence",
   "version": 1,
-  "description": "Test animation: heart blinks 5 times (300 ms on, 300 ms off)",
+  "description": "Animation: upward arrow blinks four times (300 ms on, 300 ms off).",
   "actions": [
     {
       "tool": "repeat",
       "args": {
-        "count": 5,
+        "count": 4,
         "actions": [
           {
             "tool": "shift_out",
@@ -15,7 +15,7 @@
               "clock_pin": 26,
               "latch_pin": 27,
               "group_size": 2,
-              "data_hex": "0100026603FF04FF057E063C07180800"
+              "data_hex": "0118023C037E04180518061807180818"
             }
           },
           {

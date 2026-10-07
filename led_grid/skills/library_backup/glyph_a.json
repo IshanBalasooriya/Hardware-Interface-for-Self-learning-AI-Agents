@@ -1,7 +1,7 @@
 {
   "type": "action_sequence",
   "version": 1,
-  "description": "Turn every LED off on the 8x8 LED matrix.",
+  "description": "Draw the 5x7 uppercase letter A on the LED matrix.",
   "actions": [
     {
       "tool": "shift_out",
@@ -10,7 +10,7 @@
         "clock_pin": 26,
         "latch_pin": 27,
         "group_size": 2,
-        "data_hex": "01000200030004000500060007000800"
+        "data_hex": "013802440344047C0544064407440800"
       }
     }
   ]
