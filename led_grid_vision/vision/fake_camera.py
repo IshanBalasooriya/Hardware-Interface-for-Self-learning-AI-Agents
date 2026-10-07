@@ -8,6 +8,7 @@ from vision.camera import BaseCamera
 N = 8
 PITCH = 32  # grid-space pixels per cell before warping
 BACKGROUND_BANK = 4  # pre-rendered noisy backgrounds outside the module box
+CORE_LEAK = 0.3  # share of a lit LED core seen in green and blue (glow stays red)
 # Physical module corners tl, tr, bl, br in the image: a skewed quad about 120 px wide,
 # wider at the bottom (lid tilted down toward the palm rest).
 DEFAULT_QUAD = ((585, 300), (695, 302), (570, 418), (712, 420))
@@ -87,6 +88,7 @@ class FakeCamera(BaseCamera):
             lit[r, c] = False
         level = (self.on_level - self.off_level) * self._row_factors()[:, None] * lit
         led = np.where(in_disc, level[cell_r, cell_c], 0.0).astype(np.float32)
+        core = led.copy()  # the lit disc alone; only this leaks into green and blue
         if self.glow_frac > 0:
             glow = cv2.GaussianBlur(led, (0, 0), 0.6 * PITCH)
             led += self.glow_frac * glow / _single_glow_peak(self.led_radius_frac)
@@ -96,7 +98,7 @@ class FakeCamera(BaseCamera):
 
         # Physical rotation of the module (clockwise), then onto the image quad.
         k = -(self.rotation // 90)
-        led, dark = np.rot90(led, k).copy(), np.rot90(dark, k).copy()
+        led, core, dark = (np.rot90(a, k).copy() for a in (led, core, dark))
         # Everything outside the quad's padded box is a static ambient gradient, so only the box
         # is rendered per frame.
         q = np.float32(self.quad)
@@ -115,8 +117,11 @@ class FakeCamera(BaseCamera):
             base = gradient[:, x0:x1] * (1 - module) + self.off_level * module
             base = base * (1 - dark_img)
             led_img = led_img * (1 - dark_img)  # an occluded cell also hides neighbour glow
+            core_img = warp(core) * (1 - dark_img)
             red = base + led_img
-            bleed = base + 0.08 * led_img + 0.5 * np.maximum(led_img - 200.0, 0)
+            # As on the real webcam: the LED core reads yellow-white, the glow around it red only.
+            bleed = (base + CORE_LEAK * core_img + 0.02 * (led_img - core_img)
+                     + 0.5 * np.maximum(core_img - 200.0, 0))
             box = np.stack([bleed, bleed, red], axis=-1) * np.float32(self.gain)
             if self.blur_sigma > 0:
                 box = cv2.GaussianBlur(box, (0, 0), self.blur_sigma)
