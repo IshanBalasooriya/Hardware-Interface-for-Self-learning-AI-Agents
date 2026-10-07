@@ -207,9 +207,10 @@ def test_device_offline(make_server):
     assert response.json() == {"error": "device_offline"}
 
 
-def test_placeholder_page(make_server):
+def test_dashboard_page(make_server):
     with make_server() as client:
         response = client.get("/")
     assert response.status_code == 200
-    assert "Dashboard not installed" in response.text
-    assert "/api/status" in response.text
+    assert 'id="led-dashboard"' in response.text
+    assert "./app.js" in response.text
+    assert "Dashboard not installed" not in response.text

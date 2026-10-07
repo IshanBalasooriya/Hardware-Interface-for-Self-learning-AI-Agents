@@ -1,0 +1,17 @@
+{
+  "type": "action_sequence",
+  "version": 1,
+  "description": "Clear the 8x8 LED matrix display.",
+  "actions": [
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01000200030004000500060007000800"
+      }
+    }
+  ]
+}

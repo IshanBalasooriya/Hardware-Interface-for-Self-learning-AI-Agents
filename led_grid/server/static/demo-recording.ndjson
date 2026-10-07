@@ -1,0 +1,14 @@
+{"type":"status","ts":1791283690.0,"connected":true,"busy":false,"run_id":null}
+{"type":"run_started","ts":1791283690.3,"run_id":"r_recorded_01","prompt":"Draw a heart"}
+{"type":"status","ts":1791283690.3,"connected":true,"busy":true,"run_id":"r_recorded_01"}
+{"type":"agent_message","ts":1791283690.8,"run_id":"r_recorded_01","text":"I will draw a heart, centred in the matrix."}
+{"type":"tool_call","ts":1791283691.3,"run_id":"r_recorded_01","call_id":"c_1","tool":"shift_out","args":{"data_pin":25,"clock_pin":26,"latch_pin":27,"group_size":2,"data_hex":"0100026603FF04FF057C063C07180800"}}
+{"type":"shift_state","ts":1791283691.338,"state":{"seq":1,"timestamp":1791283691.338,"display":"on","intensity":2,"rows":["00000000","01100110","11111111","11111111","01111100","00111100","00011000","00000000"],"bytes":"0100026603FF04FF057C063C07180800"}}
+{"type":"tool_result","ts":1791283691.338,"run_id":"r_recorded_01","call_id":"c_1","tool":"shift_out","duration_ms":38,"result":{"success":true,"decoded_state":{"seq":1,"display":"on","intensity":2,"rows":["00000000","01100110","11111111","11111111","01111100","00111100","00011000","00000000"]}}}
+{"type":"agent_message","ts":1791283691.9,"run_id":"r_recorded_01","text":"Row 5 is missing a pixel. I will correct that row."}
+{"type":"tool_call","ts":1791283692.5,"run_id":"r_recorded_01","call_id":"c_2","tool":"shift_out","args":{"data_pin":25,"clock_pin":26,"latch_pin":27,"group_size":2,"data_hex":"0100026603FF04FF057E063C07180800"}}
+{"type":"shift_state","ts":1791283692.538,"state":{"seq":2,"timestamp":1791283692.538,"display":"on","intensity":2,"rows":["00000000","01100110","11111111","11111111","01111110","00111100","00011000","00000000"],"bytes":"0100026603FF04FF057E063C07180800"}}
+{"type":"tool_result","ts":1791283692.538,"run_id":"r_recorded_01","call_id":"c_2","tool":"shift_out","duration_ms":38,"result":{"success":true,"decoded_state":{"seq":2,"display":"on","intensity":2,"rows":["00000000","01100110","11111111","11111111","01111110","00111100","00011000","00000000"]}}}
+{"type":"skill_saved","ts":1791283693.1,"run_id":"r_recorded_01","name":"heart","version":1}
+{"type":"run_finished","ts":1791283693.7,"run_id":"r_recorded_01","status":"completed","summary":"Drew a heart. Saved as heart.","error":null}
+{"type":"status","ts":1791283693.7,"connected":true,"busy":false,"run_id":null}
