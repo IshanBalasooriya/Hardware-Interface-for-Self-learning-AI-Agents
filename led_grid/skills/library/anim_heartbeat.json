@@ -1,0 +1,103 @@
+{
+  "type": "action_sequence",
+  "version": 1,
+  "description": "Animation: heart blinks three times (300 ms on, 300 ms off).",
+  "actions": [
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "016602FF03FF047E053C061807000800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 300
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01000200030004000500060007000800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 300
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "016602FF03FF047E053C061807000800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 300
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01000200030004000500060007000800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 300
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "016602FF03FF047E053C061807000800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 300
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01000200030004000500060007000800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 300
+      }
+    }
+  ]
+}
