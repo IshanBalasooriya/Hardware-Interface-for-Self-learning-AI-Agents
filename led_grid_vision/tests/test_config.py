@@ -16,12 +16,14 @@ EXPECTED = {
     "VISION_SAMPLE_RADIUS_FRAC": 0.25, "VISION_MIN_PITCH_PX": 8.0,
     "VISION_MIN_SEPARATION": 25.0, "VISION_UNCERTAIN_BAND": 0.30,
     "VISION_MAX_UNCERTAIN": 4, "VISION_SCENE_TOLERANCE": 0.25,
+    "VISION_SCENE_MIN_DELTA": 12.0, "VISION_LEVEL_TOLERANCE": 0.2,
+    "VISION_MOVE_TOLERANCE_FRAC": 0.15, "VISION_MOVE_MIN_CELLS": 3,
     "VISION_VIEW_ZOOM": 6,
 }
 
 
 def _fresh(monkeypatch, **env):
-    for name in ("SERIAL_PORT", "CAMERA_SOURCE", "CAMERA_BACKEND", "VISION_VIEW"):
+    for name in ("SERIAL_PORT", "CAMERA_SOURCE", "CAMERA_BACKEND", "VISION_VIEW", "CALIBRATION_FILE"):
         monkeypatch.delenv(name, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -47,8 +49,9 @@ def test_defaults(monkeypatch):
 
 def test_env_overrides(monkeypatch):
     cfg = _fresh(monkeypatch, SERIAL_PORT="fake", CAMERA_SOURCE="fake", CAMERA_BACKEND="msmf",
-                 VISION_VIEW="0")
+                 VISION_VIEW="0", CALIBRATION_FILE="logs/fake_calibration.json")
     try:
+        assert cfg.CALIBRATION_FILE == Path(cfg.__file__).resolve().parent / "logs" / "fake_calibration.json"
         assert cfg.SERIAL_PORT == "fake"
         assert cfg.CAMERA_SOURCE == "fake"
         assert cfg.CAMERA_BACKEND == "msmf"

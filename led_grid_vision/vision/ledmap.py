@@ -40,3 +40,26 @@ def compare(expected_rows: list[str], observed_rows: list[str]) -> list[dict]:
             if e in "01" and o in "01" and e != o:
                 out.append({"row": r, "col": c, "expected": e, "observed": o})
     return out
+
+
+def build_led_map(seq: int, timestamp: float, rows: list[str], warnings: list[str], status: str,
+                  read_ms: float) -> dict:
+    """The vision LED map (master section 6.3): led_grid's seven keys, then `source` and `vision`."""
+    rows = [str(r) for r in rows]
+    uncertain = sum(r.count("?") for r in rows)
+    return {
+        "seq": int(seq),
+        "timestamp": float(timestamp),
+        "display": "on" if any("1" in r for r in rows) else "unknown",
+        "intensity": None,
+        "rows": rows,
+        "bytes": rows_to_hex(rows) if uncertain == 0 else None,
+        "warnings": [str(w) for w in warnings],
+        "source": "camera",
+        "vision": {"status": str(status), "uncertain": int(uncertain), "read_ms": int(round(float(read_ms)))},
+    }
+
+
+def failed_led_map(seq: int, timestamp: float, status: str, warnings: list[str], read_ms: float) -> dict:
+    """The all-unknown form, for `uncalibrated` and `camera_error`."""
+    return build_led_map(seq, timestamp, ["?" * N] * N, warnings, status, read_ms)

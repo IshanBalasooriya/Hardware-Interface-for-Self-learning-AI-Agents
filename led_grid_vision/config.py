@@ -41,12 +41,16 @@ VISION_MIN_SEPARATION = 25.0
 VISION_UNCERTAIN_BAND = 0.30
 VISION_MAX_UNCERTAIN = 4
 VISION_SCENE_TOLERANCE = 0.25
+VISION_SCENE_MIN_DELTA = 12.0  # absolute change the scene reference must also exceed (baseline can be 0)
+VISION_LEVEL_TOLERANCE = 0.2  # class-wide drift from the calibrated off/on levels (share of gap) -> lighting_changed
+VISION_MOVE_TOLERANCE_FRAC = 0.15  # median lit-cell centroid offset (fraction of pitch) -> grid_moved. Plan: 0.2; tuned on real runs (stage 3)
+VISION_MOVE_MIN_CELLS = 3  # lit cells needed before the centroid test is applied
 
 # Viewfinder (master section 9.1)
 VISION_VIEW = os.getenv("VISION_VIEW", "1")  # "1" shows the window in live scripts; "0" hides it
 VISION_VIEW_ZOOM = 6
 
 # Files
-CALIBRATION_FILE = BASE_DIR / "logs" / "vision_calibration.json"
+CALIBRATION_FILE = BASE_DIR / os.getenv("CALIBRATION_FILE", "logs/vision_calibration.json")  # relative -> BASE_DIR
 VISION_CAPTURE_DIR = BASE_DIR / "logs" / "vision" / "captures"
 VISION_DEBUG_DIR = BASE_DIR / "logs" / "vision" / "debug"

@@ -86,11 +86,29 @@ class _NoGrabCamera:
     flush = grab
 
 
-def test_disabled_idle_sleeps_without_camera():
+class _FakeClock:
+    """Stands in for the `time` module inside vision.viewfinder: sleep advances the clock, no real wait."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.slept = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, s: float) -> None:
+        self.slept.append(s)
+        self.now += s
+
+
+def test_disabled_idle_sleeps_without_camera(monkeypatch):
+    import vision.viewfinder as vfmod
+
+    clock = _FakeClock()
+    monkeypatch.setattr(vfmod, "time", clock)
     vf = Viewfinder(enabled=False)
-    t = time.monotonic()
     vf.idle(_NoGrabCamera(), 60)
-    assert time.monotonic() - t >= 0.055
+    assert clock.slept == [pytest.approx(0.060)]
     vf.update(np.zeros((H, W, 3), np.uint8))  # no-op
     vf.close()
     vf.close()

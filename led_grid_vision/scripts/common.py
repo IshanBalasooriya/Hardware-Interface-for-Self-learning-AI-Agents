@@ -4,7 +4,7 @@ import config
 from link.serial_link import open_link
 from vision.camera import open_camera
 from vision.fake_camera import FakeCamera
-from vision.ledmap import rows_to_hex
+from vision.ledmap import hex_to_rows, rows_to_hex
 
 
 def open_all():
@@ -41,3 +41,12 @@ def make_show(link, camera):
             camera.set_rows(rows)
 
     return show
+
+
+def send_hex(link, camera, data_hex: str) -> list[str]:
+    """Send a raw row frame as is; returns the rows it produces from a blank grid."""
+    rows = hex_to_rows(data_hex)
+    _send(link, data_hex, "show")
+    if isinstance(camera, FakeCamera):
+        camera.set_rows(rows)
+    return rows

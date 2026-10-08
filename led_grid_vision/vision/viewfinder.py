@@ -344,7 +344,7 @@ class Viewfinder:
         self.tracker.release()
         self.zoom_centre = None
 
-    def update(self, frame, label="", rows=None) -> None:
+    def update(self, frame, label="", rows=None, status=None) -> None:
         if not self.active:
             return
         try:
@@ -361,7 +361,7 @@ class Viewfinder:
                 box = self.tracker.update(detected, now)
             rect = choose_inset(frame.shape, self.calibration, box, self.zoom_centre, self.zoom)
             info = {"width": frame.shape[1], "height": frame.shape[0], "fps": self._fps,
-                    "sharpness": sharpness(frame, rect)}
+                    "sharpness": sharpness(frame, rect), "status": status}
             view = render_view(frame, label=label, info=info, calibration=self.calibration, rows=rows,
                                zoom_centre=self.zoom_centre, zoom=self.zoom, box=box,
                                locked=self.tracker.locked)

@@ -61,6 +61,7 @@ class Calibration:
     scene_ref: dict
     geometry: dict
     verification: dict = field(default_factory=dict)
+    guard: dict = field(default_factory=dict)  # stage 3: 36 positions just outside the grid, and their off levels
     version: int = VERSION
 
     def to_dict(self) -> dict:
@@ -278,8 +279,9 @@ def _calibrate(camera, show, intensity, settle_ms, viewfinder, state) -> Calibra
     if low:
         raise _Fail("low_contrast", cells=low, required=min_sep)
 
-    # 5. scene reference
+    # 5. scene reference, and the guard ring's own off levels (used by the reader's movement check)
     cal.scene_ref = _scene_ref(off, quad, centres, min_pitch, radius)
+    cal.guard = _guard_ring(off, hom, radius)
 
     # 6. self-verification on patterns not used for fitting
     checks = [("checker_0", P.checker(0)), ("checker_1", P.checker(1))]
@@ -410,6 +412,28 @@ def _scene_ref(off: np.ndarray, quad: np.ndarray, centres: np.ndarray, pitch: fl
         return {"points_px": [], "level": None}
     level = float(_disc_means(off, keep, radius).mean())
     return {"points_px": [[round(float(x), 1), round(float(y), 1)] for x, y in keep], "level": round(level, 2)}
+
+
+# Grid (col, row) coordinates of the 36 virtual cells just outside the grid: rows -1 and 8, columns -1 and 8.
+GUARD_CELLS = ([(c, r) for r in (-1, N) for c in range(-1, N + 1)]
+               + [(c, r) for c in (-1, N) for r in range(N)])
+
+
+def guard_points(hom) -> np.ndarray:
+    """Image (x, y) of the 36 guard positions, projected through the grid homography."""
+    g = np.float64(GUARD_CELLS).reshape(-1, 1, 2)
+    return cv2.perspectiveTransform(g, np.asarray(hom, np.float64)).reshape(-1, 2)
+
+
+def _guard_ring(off: np.ndarray, hom, radius: float) -> dict:
+    """Guard positions and their level in all_off; null level for positions outside the image."""
+    h, w = off.shape
+    pts = guard_points(hom)
+    levels = []
+    for x, y in pts:
+        inside = radius <= x < w - radius and radius <= y < h - radius
+        levels.append(round(float(_disc_means(off, [(x, y)], radius)[0]), 2) if inside else None)
+    return {"points_px": [[round(float(x), 2), round(float(y), 2)] for x, y in pts], "off_level": levels}
 
 
 def _grid_list(a: np.ndarray) -> list:
