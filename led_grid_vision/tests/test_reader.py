@@ -39,6 +39,15 @@ def cal():
     return _calibrate()
 
 
+# A dark room as on the real webcam: unlit LEDs and the scene read close to 0 (a blocked fake frame is 3)
+ROOM = dict(ambient=0.0, off_level=3.0)
+
+
+@pytest.fixture(scope="module")
+def room_cal():
+    return _calibrate(**ROOM)
+
+
 @pytest.fixture(autouse=True)
 def fast_reads(monkeypatch):
     monkeypatch.setattr(config, "VISION_FLUSH_FRAMES", 0)
@@ -59,7 +68,8 @@ def _random_set(n=50):
 
 
 def _assert_clean(m, rows, name=""):
-    assert m["vision"]["status"] == "ok", (name, m)
+    lit = any("1" in r for r in rows)
+    assert m["vision"]["status"] == ("ok" if lit else "dark"), (name, m)
     assert m["rows"] == rows, name
     assert m["bytes"] == rows_to_hex(rows), name
     assert m["warnings"] == [], name
@@ -93,6 +103,7 @@ def test_object_shape_seq_and_display(cal):
     assert json.loads(json.dumps(a)) == a
     assert a["intensity"] is None and a["source"] == "camera"
     assert a["display"] == "on" and b["display"] == "unknown"
+    assert (a["vision"]["status"], b["vision"]["status"]) == ("ok", "dark")
     assert (a["seq"], b["seq"]) == (1, 2)
     assert set(a["vision"]) == {"status", "uncertain", "read_ms"} and isinstance(a["vision"]["read_ms"], int)
     assert reader.last_values.shape == (8, 8)
@@ -112,6 +123,50 @@ def test_occluded_cells_read_off(cal):
     expected[5] = "11111101"
     assert m["rows"] == expected
     assert m["vision"]["status"] == "ok"
+
+
+# ---------------------------------------------------------------- dark status (stage 4)
+
+def test_all_off_is_dark_not_ok(cal):
+    cam = FakeCamera()
+    m = _read(GridReader(cam, cal), cam, P.all_off())
+    assert m["vision"]["status"] == "dark" and m["warnings"] == []
+    assert m["rows"] == P.all_off() and m["display"] == "unknown"
+    assert m["bytes"] == "01000200030004000500060007000800" and m["vision"]["uncertain"] == 0
+
+
+def test_one_lit_cell_is_ok(cal):
+    cam = FakeCamera()
+    _assert_clean(_read(GridReader(cam, cal), cam, P.single(3, 4)), P.single(3, 4))
+
+
+def test_no_lit_cell_is_never_ok(cal):
+    cam = FakeCamera()
+    reader = GridReader(cam, cal)
+    for name, rows in P.standard_set() + _random_set(20):
+        m = _read(reader, cam, rows)
+        if not any("1" in r for r in m["rows"]):
+            assert m["vision"]["status"] != "ok", name
+
+
+def test_far_shift_lit_pattern_never_ok(cal, room_cal):
+    for c in (cal, room_cal):
+        kw = {} if c is cal else ROOM
+        cam = FakeCamera(quad=_shifted(10 * PITCH_X), **kw)
+        reader = GridReader(cam, c)
+        for rows in (P.all_on(), P.checker(0), P.row_only(3)):
+            m = _read(reader, cam, rows)
+            assert m["vision"]["status"] in ("dark", "unreliable"), (m, reader.last_checks)
+
+
+def test_room_blocked_lit_pattern_is_dark(room_cal):
+    cam = FakeCamera(**ROOM)
+    _assert_clean(_read(GridReader(cam, room_cal), cam, P.checker(0)), P.checker(0))
+    cam = FakeCamera(blocked=True, **ROOM)
+    reader = GridReader(cam, room_cal)
+    m = _read(reader, cam, P.checker(0))
+    assert m["vision"]["status"] == "dark", (m, reader.last_checks)
+    assert m["rows"] == P.all_off() and m["display"] == "unknown"
 
 
 def test_rotation_after_calibration(cal):
@@ -231,7 +286,7 @@ def test_lighting_nonzero_baseline_needs_both(bright_cal):
 def test_blocked_view_never_ok_with_lit_cells(cal):
     cam = FakeCamera(blocked=True)
     m = _read(GridReader(cam, cal), cam, P.checker(0))
-    assert not (m["vision"]["status"] == "ok" and m["display"] == "on")
+    assert m["vision"]["status"] in ("dark", "unreliable")
     assert m["rows"] == P.all_off() and m["display"] == "unknown"
 
 
@@ -247,6 +302,7 @@ def test_gain_sweep_never_confident_wrong():
             m = _read(reader, cam, rows)
             if m["vision"]["status"] == "ok":  # '?' cells are allowed; a 0/1 that is wrong is not
                 assert compare(rows, m["rows"]) == [], (gain, name, m["rows"], reader.last_checks)
+                assert any("1" in r for r in m["rows"]), (gain, name)  # an all-off reading is never ok
 
 
 def test_too_many_uncertain(cal):
@@ -333,6 +389,30 @@ def test_read_script_fake(cal, tmp_path, monkeypatch, capsys):
     m = json.loads(capsys.readouterr().out)
     assert m["bytes"] == "0100026603FF04FF057E063C07180800" and m["vision"]["status"] == "ok"
     assert not (tmp_path / "debug").exists()
+
+
+def test_read_script_dark(cal, tmp_path, monkeypatch, capsys):
+    from scripts import read
+
+    path = tmp_path / "cal.json"
+    save_calibration(cal, path)
+    monkeypatch.setattr(config, "CALIBRATION_FILE", path)
+    monkeypatch.setattr(config, "VISION_DEBUG_DIR", tmp_path / "debug")
+    assert read.main(["--pattern", "all_off", "--settle-ms", "0"]) == 0  # dark is the right answer here
+    out = capsys.readouterr().out
+    assert "status dark" in out and read.DARK_NOTE in out and read.NOT_VISIBLE not in out
+    assert not (tmp_path / "debug").exists()
+
+
+def test_read_good():
+    from scripts.read import read_good
+
+    m = lambda status, rows: {"vision": {"status": status}, "rows": rows}
+    assert read_good(m("dark", P.all_off()), P.all_off())
+    assert not read_good(m("dark", P.all_off()), P.single(0, 0))
+    assert not read_good(m("dark", P.all_off()), None)
+    assert read_good(m("ok", P.single(0, 0)), P.single(0, 0))
+    assert not read_good(m("unreliable", P.single(0, 0)), P.single(0, 0))
 
 
 def test_read_script_missing_calibration(tmp_path, monkeypatch, capsys):

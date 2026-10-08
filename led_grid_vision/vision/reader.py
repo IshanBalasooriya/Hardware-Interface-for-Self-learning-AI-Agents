@@ -1,7 +1,9 @@
 """Reader: the camera's current view -> the vision LED map (VSTAGE_3, master section 6.3).
 
 `read` never raises (P5) and never guesses (P3): doubtful cells are '?', and a view that does not
-match the calibration (light, levels, position) is reported `unreliable` with a warning.
+match the calibration (light, levels, position) is reported `unreliable` with a warning. A read
+with no cell `1` is `dark`, never `ok`: the camera cannot tell an unlit grid from one it cannot see.
+Status precedence: uncalibrated / camera_error, then unreliable, then dark, then ok.
 `check_position(show)` takes a `show(rows)` callable from the caller; this module knows nothing
 about serial links (P1).
 """
@@ -242,7 +244,8 @@ class GridReader:
         uncertain = sum(r.count("?") for r in rows)
         if uncertain > config.VISION_MAX_UNCERTAIN:
             warnings.append("too_many_uncertain")
-        status = "unreliable" if warnings else "ok"
+        # No lit LED seen: an unlit grid and a hidden, unpowered or moved one look the same (stage 4)
+        status = "unreliable" if warnings else ("ok" if any("1" in r for r in rows) else "dark")
 
         self.seq += 1
         self.last_values, self.last_frame, self.last_image = values, frames[-1], image

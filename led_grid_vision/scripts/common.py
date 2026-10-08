@@ -34,6 +34,13 @@ def clear(link) -> None:
     _send(link, config.CLEAR_HEX, "clear")
 
 
+def set_intensity(link, value: int) -> None:
+    """Intensity register 0A, 00..0F, as one 2-byte frame."""
+    if not 0 <= value <= 15:
+        raise ValueError(f"intensity must be 0..15, got {value}")
+    _send(link, f"0A{value:02X}", "intensity")
+
+
 def make_show(link, camera):
     def show(rows: list[str]) -> None:
         _send(link, rows_to_hex(rows), "show")

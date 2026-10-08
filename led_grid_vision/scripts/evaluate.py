@@ -55,13 +55,17 @@ def _read_items(camera, cal, items):
         camera.select(item["rows"])
         m = reader.read(settle_ms=0)
         wrong = len(compare(item["rows"], m["rows"]))
-        out.append((item["name"], m, wrong, m["vision"]["uncertain"], reader.last_checks))
+        out.append((item["name"], m, wrong, m["vision"]["uncertain"], {**reader.last_checks, "expected": item["rows"]}))
     return out
 
 
 def _totals(results) -> dict:
+    dark = [r for r in results if r[1]["vision"]["status"] == "dark"]
+    dark_lit = sum(any("1" in row for row in r[4].get("expected", [])) for r in dark)
     return {"reads": len(results), "wrong": sum(r[2] for r in results), "uncertain": sum(r[3] for r in results),
-            "not_ok": sum(r[1]["vision"]["status"] != "ok" for r in results),
+            # `dark` on an all-off item is correct; `dark` on an item with lit cells is a flagged read
+            "not_ok": sum(r[1]["vision"]["status"] not in ("ok", "dark") for r in results) + dark_lit,
+            "dark": len(dark), "dark_lit": dark_lit,
             "confident_wrong": sum(r[2] > 0 and r[1]["vision"]["status"] == "ok" for r in results),
             # of those, reads that still claim lit cells (display on); the rest read all dark (display unknown)
             "confident_wrong_lit": sum(r[2] > 0 and r[1]["vision"]["status"] == "ok" and r[1]["display"] == "on"
@@ -72,7 +76,8 @@ def _totals(results) -> dict:
 
 def _fmt_totals(t: dict) -> str:
     return (f"{t['reads']} reads, {t['wrong']} wrong cells, {t['uncertain']} uncertain cells, "
-            f"{t['not_ok']} not ok ({t['grid_moved']} grid_moved, {t['lighting_changed']} lighting_changed), "
+            f"{t['not_ok']} not ok ({t['grid_moved']} grid_moved, {t['lighting_changed']} lighting_changed, "
+            f"{t['dark_lit']} dark with lit cells expected), {t['dark'] - t['dark_lit']} dark on all-off, "
             f"{t['confident_wrong']} ok-but-wrong ({t['confident_wrong_lit']} with lit cells, "
             f"{t['confident_wrong'] - t['confident_wrong_lit']} all dark)")
 

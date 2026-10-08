@@ -7,6 +7,7 @@
 --hex      a raw row frame, sent as is; expected rows come from hex_to_rows
 --keep     send nothing; read what is on the grid (no expected rows)
 Default: --pattern checker_0.
+Exit 0 only if every read is `ok` and equal to the expected rows (or `dark` when nothing lit was expected).
 """
 
 import argparse
@@ -52,7 +53,26 @@ def side_by_side(expected, observed) -> list[str]:
     return lines
 
 
-def save_debug(reader, cal, expected, led_map) -> str | None:
+DARK_NOTE = "dark: no lit LED seen. An all-off grid and a hidden, unpowered or moved grid look the same"
+NOT_VISIBLE = "GRID NOT VISIBLE: lit LEDs were commanded but none were seen. Run again with --check-position"
+
+
+def has_lit(rows) -> bool:
+    return bool(rows) and any("1" in r for r in rows)
+
+
+def read_good(led_map, expected) -> bool:
+    """`ok` with the expected rows, or `dark` when nothing lit was expected. With no expected rows
+    (--keep) only `ok` counts: a dark read confirms nothing."""
+    status = led_map["vision"]["status"]
+    if expected is None:
+        return status == "ok"
+    if led_map["rows"] != expected:
+        return False
+    return status == "ok" or (status == "dark" and not has_lit(expected))
+
+
+def save_debug(reader, cal, expected, led_map, path=None) -> str | None:
     """Grid region, upscaled, with wrong cells circled red and uncertain cells yellow."""
     if reader.last_frame is None:
         return None
@@ -60,8 +80,9 @@ def save_debug(reader, cal, expected, led_map) -> str | None:
     if expected:
         marks = {(d["row"], d["col"]): (0, 0, 255) for d in compare(expected, led_map["rows"])}
     marks.update({(r, c): (0, 255, 255) for r in range(8) for c in range(8) if led_map["rows"][r][c] == "?"})
-    config.VISION_DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-    path = config.VISION_DEBUG_DIR / f"read_{time.strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000) % 1000:03d}.png"
+    if path is None:
+        path = config.VISION_DEBUG_DIR / f"read_{time.strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000) % 1000:03d}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
     write_png(path, draw_overlay(reader.last_frame, cal, marks))
     return str(path)
 
@@ -132,8 +153,7 @@ def main(argv=None) -> int:
             maps.append(reader.read(settle_ms=args.settle_ms))
             if args.json:
                 print(json.dumps(maps[-1]))
-            bad = maps[-1]["vision"]["status"] != "ok" or (expected and maps[-1]["rows"] != expected)
-            if bad and not saved:  # one image per run: the first bad read
+            if not read_good(maps[-1], expected) and not saved:  # one image per run: the first bad read
                 path = save_debug(reader, cal, expected, maps[-1])
                 saved = True
                 if path:
@@ -165,6 +185,10 @@ def main(argv=None) -> int:
         print(f"identical to read 1: {same}/{len(maps)}", file=out)
         if expected:
             print(f"equal to expected:   {sum(m['rows'] == expected for m in maps)}/{len(maps)}", file=out)
+    if any(m["vision"]["status"] == "dark" for m in maps):
+        print(DARK_NOTE, file=out)
+        if has_lit(expected):
+            print(NOT_VISIBLE, file=out)
     ms = sorted(m["vision"]["read_ms"] for m in maps)
     print(f"read_ms median {ms[len(ms) // 2]}   max {ms[-1]}", file=out)
     mv = reader.last_checks.get("movement")
@@ -172,8 +196,7 @@ def main(argv=None) -> int:
         print(f"movement: lit {mv['lit_cells']}, median offset {mv['median_offset_frac']} "
               f"(limit {config.VISION_MOVE_TOLERANCE_FRAC}), guard max {mv['guard_max']} "
               f"(limit {mv['guard_limit']})", file=out)
-    ok = all(m["vision"]["status"] == "ok" for m in maps) and (not expected or all(m["rows"] == expected for m in maps))
-    return 0 if ok else 1
+    return 0 if all(read_good(m, expected) for m in maps) else 1
 
 
 if __name__ == "__main__":

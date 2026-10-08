@@ -1,0 +1,145 @@
+{
+  "type": "action_sequence",
+  "version": 1,
+  "description": "Countdown animation from 8 to 0, one digit per frame with 600 ms pauses.",
+  "actions": [
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01380244034404380544064407380800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "017C0204030804100520062007200800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "013C0240034004780544064407380800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "017C0240037804040504064407380800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "014402440344047C0504060407040800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "017C02040304043C05040604077C0800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "017C02040304047C05400640077C0800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "01100230031004100510061007380800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "017C02440344044405440644077C0800"
+      }
+    }
+  ]
+}
