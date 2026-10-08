@@ -9,53 +9,21 @@ from agent.loop import run_agent
 from agent.prompts import CAMERA_SECTION, build_system_prompt
 from agent.tools import TOOL_SCHEMAS, AgentContext, call_tool, tool_schemas
 from bridge.bridge import Bridge
-from bridge.grid_model import Max7219Model
 from bridge.grid_store import GridStore
 from bridge.transport import FakeTransport
 from skills.store import SkillStore
 from tests.led_grid.test_loop import HEART_HEX, ScriptedClient, call, reply, shift
-from vision.calibration import calibrate, save_calibration
-from vision.fake_camera import FakeCamera
-from vision.ledmap import effective_rows, hex_to_rows
+from tests.integration_fakes import COVERED, HEART, ROOM, ChipCamera, write_calibration
+from vision.ledmap import hex_to_rows
 from vision_service import VisionService
 
-HEART = ["00000000", "01100110", "11111111", "11111111", "01111110", "00111100", "00011000", "00000000"]
-ROOM = dict(ambient=0.0, off_level=3.0)  # dark room, as on the real webcam (tests/test_reader.py)
-COVERED = {(2, 1), (2, 2), (3, 1), (3, 2)}  # 4 lit cells of the heart
 LED_MAP_KEYS = ["seq", "timestamp", "display", "intensity", "rows", "bytes", "warnings"]
 CHECKER_HEX = "01AA025503AA045505AA065507AA0855"
 
 
-class ChipCamera(FakeCamera):
-    """FakeCamera whose picture follows the fake device's real register state (its own chip model,
-    fed from the bytes the device accepted), never GridStore. Logs every frame grab."""
-
-    def __init__(self, device, log, **kw) -> None:
-        super().__init__(**{**ROOM, **kw})
-        self.device, self.log = device, log
-        self.chip = Max7219Model()
-        self._applied = 0
-
-    def grab(self, n):
-        for _pins, group, payload in self.device.sent[self._applied:]:
-            self.chip.apply(payload, group)
-        self._applied = len(self.device.sent)
-        self.set_rows([r.replace("?", "0") for r in effective_rows(self.chip.picture())])
-        self.log.append("grab")
-        return super().grab(n)
-
-
 @pytest.fixture(scope="module")
 def cal_file(tmp_path_factory):
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(config, "VISION_FLUSH_FRAMES", 0)
-        mp.setattr(config, "VISION_AVG_FRAMES", 2)
-        cam = FakeCamera(**ROOM)
-        res = calibrate(cam, cam.set_rows, intensity=2, settle_ms=0)
-    assert res.ok, res.reason
-    path = tmp_path_factory.mktemp("vision") / "calibration.json"
-    save_calibration(res.calibration, path)
-    return path
+    return write_calibration(tmp_path_factory.mktemp("vision") / "calibration.json")
 
 
 @pytest.fixture(autouse=True)
@@ -230,7 +198,8 @@ def test_camera_factory_raising(tmp_path, cal_file):
 
     r = Rig(tmp_path, cal_file, camera_factory=broken)
     assert r.vision.status() == {"enabled": True, "camera": "error", "calibrated": False,
-                                 "calibration_created": None, "last_status": None}
+                                 "calibration_created": None, "last_status": None, "position_ok": None,
+                                 "preview_active": False, "operation": None}
     result = r.show(HEART_HEX)
     assert result["success"] and result["decoded_state"]["rows"] == HEART
     assert result["physical_check"]["result"] == "unavailable"

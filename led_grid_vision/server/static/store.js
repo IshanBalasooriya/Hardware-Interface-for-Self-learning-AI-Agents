@@ -6,7 +6,10 @@ export function createStore(client, config) {
   const state = {
     status: { connected: false, busy: false, runId: null }, map: null,
     history: [], trace: [], traceVersion: 0, line: "Ready. Type a prompt or pick one below.",
-    danger: false, socketOpen: false, error: "", sending: false, loading: true
+    danger: false, socketOpen: false, error: "", sending: false, loading: true,
+    // Camera (stage 5): vision is null when the server has no vision.
+    vision: null, metrics: null, observation: null, visionOp: null, calibration: null, position: null,
+    visionMessage: "", visionVersion: 0
   };
   function notify() {
     // The grid owns requestAnimationFrame; batch state first so JSON and LEDs paint together.
@@ -30,7 +33,15 @@ export function createStore(client, config) {
     if (!event || disposed) return;
     if (refreshing) { buffered.push(event); return; }
     switch (event.kind) {
-      case EVENTS.STATUS: state.status = event.status; break;
+      case EVENTS.STATUS: state.status = { ...event.status, vision: event.status.vision ?? state.status.vision ?? null }; break;
+      case EVENTS.OBSERVED: state.observation = { map: event.observed, check: event.check }; state.visionVersion++; break;
+      case EVENTS.METRICS: state.metrics = event.metrics; state.visionVersion++; break;
+      case EVENTS.VISION:
+        if (event.vision) state.vision = event.vision;
+        state.visionOp = event.phase === "started" ? event.operation : null;
+        if (event.phase === "finished" && event.operation === "calibrate") state.calibration = event.result;
+        if (event.phase === "finished" && event.operation === "check_position") state.position = event.result;
+        state.visionVersion++; break;
       case EVENTS.MAP:
         if (!event.map || (state.map && event.map.seq <= state.map.seq)) return;
         state.map = event.map;
@@ -71,6 +82,8 @@ export function createStore(client, config) {
     refreshing = true;
     const results = await Promise.allSettled([client.getStatus(), client.getShiftState(), client.getFrames(config.maxHistoryFrames)]);
     if (disposed) return;
+    await refreshVision();
+    if (disposed) return;
     if (results[0].status === "fulfilled") state.status = results[0].value;
     if (results[1].status === "fulfilled") state.map = results[1].value;
     if (results[2].status === "fulfilled") {
@@ -78,6 +91,28 @@ export function createStore(client, config) {
     }
     state.loading = false; refreshing = false;
     const pending = buffered; buffered = []; pending.forEach(apply); notify();
+  }
+  async function refreshVision() {
+    if (!client.getVisionStatus) { state.vision = null; return; }
+    try { state.vision = await client.getVisionStatus(); }
+    catch (error) { if (error.code === "disabled") state.vision = null; }
+    if (state.vision) {
+      try { state.metrics = await client.getVisionMetrics(); } catch { /* No frame yet. */ }
+    }
+    state.visionVersion++;
+  }
+  // A camera action: busy while it runs, then the vision status is re-read.
+  async function visionAction(operation, call, done) {
+    state.visionMessage = ""; state.visionOp = operation; state.visionVersion++; notify();
+    try { const result = await call(); done?.(result); }
+    catch (error) {
+      state.visionMessage = error.code === "busy" ? "Busy: wait for the current run or camera step to finish." :
+        error.code === "offline" ? "Device or camera unavailable." : "Could not reach the camera service.";
+    } finally {
+      state.visionOp = null;
+      await refreshVision();
+      notify();
+    }
   }
   const unsubscribers = [];
   async function init() {
@@ -103,6 +138,18 @@ export function createStore(client, config) {
         state.error = error.code === "busy" ? "The agent is busy. Wait for it to finish or press Stop." :
           error.code === "offline" ? "Device offline" : error.code === "empty" ? "Type a prompt first" : "Could not reach the agent.";
       } finally { state.sending = false; notify(); }
+    },
+    calibrate: () => visionAction("calibrate", client.calibrate, result => {
+      state.calibration = result;
+      state.visionMessage = result.success ? "" : `Calibration failed: ${result.reason ?? "unknown reason"}`;
+    }),
+    checkPosition: () => visionAction("check_position", client.checkPosition, result => {
+      state.position = result;
+      state.visionMessage = result.ok ? "" : `Position check failed: ${result.detail?.reason ?? `moved ${result.max_corner_shift_px} px`}`;
+    }),
+    setLight: on => visionAction("light", () => client.setLight(on)),
+    async lockPreview(action, x, y) {
+      try { await client.lockPreview(action, x, y); } catch { state.visionMessage = "Could not reach the camera service."; notify(); }
     },
     async stop() {
       try { await client.stop(); } catch { state.error = "Could not reach the agent."; notify(); }

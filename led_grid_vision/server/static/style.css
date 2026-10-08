@@ -348,3 +348,68 @@ label.control-label { margin: 28px 0 10px; }
 .dashboard.is-live .workspace { grid-template-columns: minmax(0, 1fr); }
 .agent-text, .tool-name { font-size: 16px; color: var(--ink); }
 .tool-arguments { font-size: 13px; }
+
+/* Camera (stage 5): setup preview, readout, checklist, observed vs commanded. */
+:root { --observed: #3f78b5; --observed-off: #2a3442; --good: #4f8a3a; --warn: #b8741a; --cam-bg: #0d0d10; }
+[data-theme="dark"] { --observed: #7db3ff; --observed-off: #222b38; --good: #8fcf6e; --warn: #f0b05a; }
+.camera-root { margin-top: 30px; }
+.camera-main { min-width: 0; }
+.camera-section { min-width: 0; padding: 20px 22px 22px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.camera-op { font: 10px var(--mono); letter-spacing: .8px; color: var(--muted); padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; }
+.camera-op.is-busy { color: var(--warn); border-color: currentColor; }
+.camera-op.is-bad { color: var(--danger); border-color: currentColor; }
+.camera-layout { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 22px; margin-top: 16px; }
+/* Only the camera panels (1440x540 of the 1440x660 canvas): the readout bar below replaces the drawn one. */
+.camera-preview { position: relative; background: var(--cam-bg); border-radius: 6px 6px 0 0; overflow: hidden; aspect-ratio: 1440 / 540; }
+.camera-preview img { display: block; width: 100%; height: auto; cursor: crosshair; }
+.camera-preview img:not([src]) { visibility: hidden; }
+.camera-preview-empty { position: absolute; inset: 0; display: grid; place-items: center; color: #9a95a0; font: 12px var(--mono); letter-spacing: .6px; }
+.camera-relock { position: absolute; top: 10px; left: 10px; padding: 5px 10px; border: 1px solid #ffffff40; border-radius: 4px; background: #0d0d10c0; color: #f2f2f2; font: 11px var(--mono); }
+.camera-relock:hover { background: #26262ccc; }
+.camera-readout { background: var(--cam-bg); color: #f2f2f2; border-radius: 0 0 6px 6px; padding: 11px 14px 10px; font-family: var(--mono); }
+.readout-main { display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 21px; font-weight: 700; letter-spacing: .3px; min-height: 28px; }
+.readout-sub { margin-top: 5px; font-size: 12px; color: #c9c6cd; }
+.readout-item.is-green { color: #3ddc5c; }.readout-item.is-amber { color: #ffaa2b; }.readout-item.is-red { color: #ff4d4d; }.readout-item.is-neutral { color: #f2f2f2; }
+.camera-buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.camera-button { min-height: 38px; padding: 0 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--chip); color: var(--ink); font-size: 13px; font-weight: 500; }
+.camera-button:hover:not(:disabled) { background: var(--chip-hover); }
+.camera-button[aria-pressed="true"] { background: var(--lime); color: var(--lime-ink); border-color: transparent; }
+.camera-button--primary { background: var(--plum); color: var(--paper); border-color: transparent; }
+.camera-button--primary:hover:not(:disabled) { background: var(--plum-hover); }
+.camera-button--primary.is-soft-disabled { opacity: .55; }
+.camera-button:disabled { opacity: .4; }
+.camera-message { margin-top: 10px; color: var(--danger); font-size: 13px; line-height: 1.5; }
+.camera-checklist ol { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 9px; }
+.camera-checklist li { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.camera-checklist li.is-current { color: var(--ink); font-weight: 500; }
+.camera-checklist li.is-done { color: var(--ink); }
+.step-mark { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); font: 10px var(--mono); }
+.camera-checklist li.is-current .step-mark { border-color: var(--plum); color: var(--plum); }
+.camera-checklist li.is-done .step-mark { background: var(--good); border-color: var(--good); color: #fff; }
+.camera-verification { margin-top: 12px; font: 11px/1.5 var(--mono); color: var(--good); }
+.camera-compare { display: grid; grid-template-columns: 120px 120px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+.camera-compare figure { margin: 0; }
+.camera-compare figcaption { margin-bottom: 8px; color: var(--meta); font: 9px var(--mono); letter-spacing: .75px; }
+.compare-bay { padding: 8px; border-radius: 4px; background: #241a1f; }
+.compare-bay--observed { background: #141b25; }
+.led.is-marked { outline: 2px solid #ffd43b; outline-offset: 1px; }
+.led-grid--observed .led.is-on { background: radial-gradient(circle at 40% 32%, #b9dcff 0, var(--observed) 60%); box-shadow: 0 0 8px #5aa0ff55; opacity: 1; }
+.led-grid--observed .led.is-off { background: var(--observed-off); opacity: 1; }
+.camera-check { align-self: center; }
+.check-badge { display: inline-block; padding: 5px 11px; border-radius: 999px; font: 700 11px var(--mono); letter-spacing: .8px; background: var(--chip); color: var(--chip-ink); }
+.check-badge.is-match, .check-badge.is-consistent_dark { background: var(--good); color: #fff; }
+.check-badge.is-mismatch, .check-badge.is-not_visible { background: var(--danger); color: #fff; }
+.check-badge.is-uncertain { background: var(--warn); color: #fff; }
+.camera-check p { margin-top: 9px; font-size: 13px; line-height: 1.5; color: var(--ink); }
+.camera-pill-row { display: flex; justify-content: center; margin: -8px 0 12px; min-height: 0; }
+.camera-pill { padding: 3px 11px; border-radius: 999px; font: 11px var(--mono); letter-spacing: .4px; border: 1px solid currentColor; }
+.camera-pill.is-good { color: var(--good); }.camera-pill.is-bad { color: var(--danger); }.camera-pill.is-warn { color: var(--warn); }.camera-pill.is-off { color: var(--muted); }
+.prompt-warning { color: var(--warn); font-size: 13px; line-height: 1.5; margin-top: 9px; }
+@media (max-width: 1099px) { .camera-layout { grid-template-columns: minmax(0, 1fr); } .camera-checklist ol { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 780px) {
+  .camera-section { padding: 16px; } .readout-main { font-size: 15px; gap: 4px 14px; }
+  .camera-compare { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .camera-check { grid-column: 1 / -1; }
+  .camera-checklist ol { grid-template-columns: minmax(0, 1fr); }
+}
+.compare-bay .grid-caption { display: none; }
+.camera-compare figure { max-width: 220px; }

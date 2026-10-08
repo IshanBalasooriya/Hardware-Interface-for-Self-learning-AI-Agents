@@ -1,7 +1,8 @@
 export const EVENTS = Object.freeze({
   STATUS: "connection.status", MAP: "map.updated", START: "run.begin",
   MESSAGE: "agent.text", CALL: "tool.begin", RESULT: "tool.end",
-  SAVED: "skill.stored", FINISH: "run.end"
+  SAVED: "skill.stored", FINISH: "run.end",
+  OBSERVED: "camera.observed", METRICS: "camera.metrics", VISION: "camera.status"
 });
 
 export function normalizeMap(raw) {
@@ -10,7 +11,7 @@ export function normalizeMap(raw) {
 
 export function normalizeStatus(raw = {}) {
   raw ??= {};
-  return { connected: Boolean(raw.connected), busy: Boolean(raw.busy), run_id: raw.run_id ?? null, runId: raw.run_id ?? null };
+  return { connected: Boolean(raw.connected), busy: Boolean(raw.busy), run_id: raw.run_id ?? null, runId: raw.run_id ?? null, vision: raw.vision ?? null };
 }
 
 const normalizeReply = raw => ({ ...raw });
@@ -22,7 +23,7 @@ function summarizeTool(tool, args = {}) {
     case "read_recent_frames": return `${args.count ?? "?"} frames`;
     case "get_skill": case "save_skill": return String(args.name ?? "");
     case "reuse_skill": return String(args.skill_name ?? "");
-    case "read_shift_state": case "list_skills": return "";
+    case "read_shift_state": case "list_skills": case "read_observed_state": return "";
     default: return Object.keys(args).slice(0, 2).map(key => `${key}: ${String(args[key])}`).join(", ").slice(0, 60);
   }
 }
@@ -42,6 +43,7 @@ export function normalizeEvent(raw) {
       args, summary: summarizeTool(raw.tool, args), preview: null,
       activity: raw.tool === "shift_out" ? "Drawing..." :
         ["read_shift_state", "read_recent_frames"].includes(raw.tool) ? "Checking the grid..." :
+        raw.tool === "read_observed_state" ? "Looking through the camera..." :
         raw.tool === "reuse_skill" ? `Playing ${raw.args?.skill_name ?? "a skill"}...` :
         ["get_skill", "list_skills"].includes(raw.tool) ? "Looking through saved skills..." : null
     };
@@ -51,6 +53,12 @@ export function normalizeEvent(raw) {
       success: raw.result?.success !== false, preview: normalizeMap(raw.result?.decoded_state ?? raw.result?.final_state ?? raw.result?.state)
     };
     case "skill_saved": return { ...base, kind: EVENTS.SAVED, name: raw.name ?? "unnamed", version: raw.version ?? 1 };
+    case "observed_state": return { ...base, kind: EVENTS.OBSERVED, observed: normalizeMap(raw.state), check: raw.physical_check ?? null };
+    case "vision_metrics": return { ...base, kind: EVENTS.METRICS, metrics: raw.metrics ?? null };
+    case "vision_status": return {
+      ...base, kind: EVENTS.VISION, operation: raw.operation ?? null, phase: raw.phase ?? null,
+      vision: raw.status ?? null, result: raw.result ?? null
+    };
     case "run_finished": return {
       ...base, kind: EVENTS.FINISH, outcome: raw.status ?? "completed",
       summary: raw.summary ?? "", error: raw.error ?? null
@@ -60,7 +68,7 @@ export function normalizeEvent(raw) {
 }
 
 export function clientError(status, error) {
-  return { status, error, code: status === 409 ? "busy" : status === 400 ? "empty" : status === 503 ? "offline" : "network" };
+  return { status, error, code: status === 409 ? "busy" : status === 400 ? "empty" : status === 503 ? "offline" : status === 404 ? "disabled" : "network" };
 }
 
 export function createApiClient(config) {
@@ -114,6 +122,16 @@ export function createApiClient(config) {
     getSkills: async () => normalizeReply(await request("/api/skills")),
     sendPrompt: async prompt => normalizeReply(await request("/api/prompt", { method: "POST", body: JSON.stringify({ prompt }) })),
     stop: async () => normalizeReply(await request("/api/stop", { method: "POST" })),
+    // Camera (stage 5). A 404 means the server runs without vision.
+    getVisionStatus: async () => normalizeReply(await request("/api/vision/status")),
+    getVisionMetrics: async () => normalizeReply(await request("/api/vision/metrics")),
+    previewStreamUrl: () => `${base}/api/vision/preview.mjpg`,
+    previewFrameUrl: () => `${base}/api/vision/preview.jpg?t=${Date.now()}`,
+    lockPreview: async (action, x, y) => normalizeReply(await request("/api/vision/preview/lock", { method: "POST", body: JSON.stringify({ action, x, y }) })),
+    setLight: async on => normalizeReply(await request("/api/vision/light", { method: "POST", body: JSON.stringify({ on: Boolean(on) }) })),
+    getObservedState: async () => normalizeReply(await request("/api/observed_state")),
+    calibrate: async () => normalizeReply(await request("/api/vision/calibrate", { method: "POST" })),
+    checkPosition: async () => normalizeReply(await request("/api/vision/check_position", { method: "POST" })),
     onEvent(fn) { events.add(fn); return () => events.delete(fn); },
     onConnection(fn) {
       connections.add(fn);

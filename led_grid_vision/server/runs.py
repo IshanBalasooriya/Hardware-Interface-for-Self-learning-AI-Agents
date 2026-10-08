@@ -2,12 +2,13 @@
 
 import logging
 import threading
-from typing import Callable
+from typing import Callable, TypeVar
 
 from agent.loop import run_agent
 from agent.tools import AgentContext
 
 MAX_ERROR_LEN = 200
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class RunManager:
         self._counter = 0
         self.busy = False
         self.run_id: str | None = None
+        self.operation: str | None = None  # "run" or a task name (stage 5: calibrate, check_position, light)
 
     def start(self, prompt: str) -> str:
         with self._lock:
@@ -36,6 +38,7 @@ class RunManager:
             run_id = f"r_{self._counter:04d}"
             self.busy = True
             self.run_id = run_id
+            self.operation = "run"
             self._stop.clear()
         self._emit({"type": "status", "busy": True, "run_id": run_id})
         threading.Thread(target=self._run, args=(run_id, prompt), daemon=True).start()
@@ -58,4 +61,22 @@ class RunManager:
         with self._lock:
             self.busy = False
             self.run_id = None
+            self.operation = None
         self._emit({"type": "status", "busy": False, "run_id": None})
+
+    def run_task(self, name: str, fn: Callable[[], T]) -> T:
+        """Run fn in the run slot, so tasks and agent runs exclude each other. Blocks the calling (worker)
+        thread until fn returns. Raises RunBusy if a run or another task is active."""
+        with self._lock:
+            if self.busy:
+                raise RunBusy()
+            self.busy = True
+            self.operation = name
+        self._emit({"type": "status", "busy": True, "run_id": None})
+        try:
+            return fn()
+        finally:
+            with self._lock:
+                self.busy = False
+                self.operation = None
+            self._emit({"type": "status", "busy": False, "run_id": None})

@@ -4,6 +4,7 @@ import { createMockClient } from "./mock.js";
 import { createStore } from "./store.js";
 import { createGrid } from "./grid.js";
 import { createTrace } from "./trace.js";
+import { cameraPill, createCameraPanel } from "./camera.js";
 import { icon, brandMark } from "./icons.js";
 
 const SCENARIOS = {
@@ -13,8 +14,10 @@ const SCENARIOS = {
   error: { prompt: "Simulate a tool error", steps: ["Send a test command", "Receive a failed response", "Report the error safely"] },
   test: { prompt: "Simulate test mode", steps: ["Accept a test command", "Receive test-mode state", "Show all 64 LEDs lit"] },
   unknown: { prompt: "Simulate unknown state", steps: ["Accept the test scenario", "Receive unknown LED data", "Display uncertainty, not guesses"] },
-  shutdown: { prompt: "Simulate display off", steps: ["Accept the shutdown scenario", "Receive display-off state", "Keep the last map visible"] }
+  shutdown: { prompt: "Simulate display off", steps: ["Accept the shutdown scenario", "Receive display-off state", "Keep the last map visible"] },
+  camera: { prompt: "Simulate covered LEDs", steps: ["Draw a heart", "Camera sees 2 LEDs differ", "Save refused; report it"] }
 };
+const CAMERA_WARNING = "Camera not calibrated: results will not be camera-confirmed.";
 const shortPrompts = new Map([
   ["Draw a heart", "Draw a heart"], ["Show the letter A", "Letter A"], ["Show the number 7", "Number 7"],
   ["Draw a smiley face", "Smiley face"], ["Play the heartbeat animation", "Heartbeat"], ["Clear the display", "Clear display"]
@@ -53,12 +56,14 @@ export function createDashboard(root, options = {}) {
           <div class="section-intro"><div class="section-kicker"><span>01 / LIVE CANVAS</span><span class="output-note">${icon("link")} OUTPUT ONLY</span></div><h2>Ideas, in 64 pixels.</h2><p>Say what you have in mind. The agent takes it from here.</p></div>
           <div class="canvas-stage">${device("large", "large-grid")}</div>
           <div class="audience-status" data-ref="audience-status"><i class="activity-dot"></i><span data-ref="status-line" role="status" aria-live="polite">Ready. Type a prompt or pick one below.</span></div>
+          <div class="camera-pill-row"><span class="camera-pill" data-ref="camera-pill" hidden></span></div>
           <div class="prompt-area"><form class="prompt-bar" data-ref="prompt-form"><label class="sr-only" for="agent-prompt">Your prompt for the LED agent</label>${icon("prompt", "prompt-icon")}<input id="agent-prompt" data-ref="prompt" type="text" placeholder="What would you like to see?" autocomplete="off" maxlength="2000"><span class="input-hint">${icon("enter")}</span><button class="send-button" data-ref="send" type="submit">Send ${icon("arrow")}</button><button class="stop-button" data-ref="stop" type="button" hidden>${icon("stop")} Stop</button></form>
-            <p class="prompt-error" data-ref="prompt-error" role="alert" hidden></p><div class="suggestions"><span class="suggestions-label">TRY</span><div class="prompt-chips" data-ref="chips"></div></div>
+            <p class="prompt-error" data-ref="prompt-error" role="alert" hidden></p><p class="prompt-warning" data-ref="prompt-warning" hidden></p><div class="suggestions"><span class="suggestions-label">TRY</span><div class="prompt-chips" data-ref="chips"></div></div>
           </div>
         </section>
         <section class="view technical-view" id="technical-panel" role="tabpanel" aria-labelledby="technical-tab" hidden>
           <div class="section-intro"><div class="section-kicker"><span>01 / SYSTEM VIEW</span><span class="output-note">${icon("code")} THE REAL DATA</span></div><h2>A look under the hood.</h2><p>Every frame, every command, and the agent's side of the story.</p></div>
+          <div class="camera-root" data-ref="camera-root" hidden></div>
           <div class="technical-layout">
             <section class="map-column"><div class="panel-heading"><h3>Live map</h3><span class="live-map-label" data-ref="map-live">LIVE</span></div><div class="map-data-layout"><div class="map-overview">${device("mini", "mini-grid")}<dl class="map-metadata"><div><dt>SEQUENCE</dt><dd data-ref="map-seq">0000</dd></div><div><dt>DISPLAY</dt><dd data-ref="map-display">on</dd></div><div><dt>INTENSITY</dt><dd><span data-ref="map-intensity">2</span><span class="value-unit"> / 15</span></dd></div></dl></div>
               <div class="json-panel"><div class="json-heading"><span>LED MAP / JSON</span><button data-ref="copy" class="copy-button" type="button" aria-label="Copy LED map JSON">${icon("copy")}<span>Copy</span></button></div><pre class="map-json" data-ref="json" tabindex="0" aria-label="Current authoritative LED map JSON"></pre><div class="json-footer"><i class="tiny-square"></i><span>READ-ONLY / BACKEND CONFIRMED</span></div></div></div>
@@ -71,7 +76,7 @@ export function createDashboard(root, options = {}) {
       <aside class="simulation-panel" aria-labelledby="simulation-title">
         <div class="simulation-kicker"><span>${icon("flask")} SIMULATION LAB</span><span>02</span></div><h2 id="simulation-title">A little test drive.</h2><p class="simulation-description">No hardware needed. Try a scenario<br class="desktop-break"> and watch the agent work.</p>
         <div data-ref="simulation-controls">
-          <label class="control-label" for="scenario">SCENARIO</label><div class="select-wrap"><select id="scenario" data-ref="scenario"><option value="draw">Draw + correct</option><option value="animation">Heartbeat animation</option><option value="clear">Clear the display</option><option value="error">Tool failure</option><option value="test">Display test mode</option><option value="unknown">Unknown state</option><option value="shutdown">Display off</option></select>${icon("down")}</div>
+          <label class="control-label" for="scenario">SCENARIO</label><div class="select-wrap"><select id="scenario" data-ref="scenario"><option value="draw">Draw + correct</option><option value="animation">Heartbeat animation</option><option value="clear">Clear the display</option><option value="error">Tool failure</option><option value="test">Display test mode</option><option value="unknown">Unknown state</option><option value="shutdown">Display off</option><option value="camera">Camera fault</option></select>${icon("down")}</div>
           <div class="speed-heading"><label for="simulation-speed">Playback speed</label><output data-ref="speed-output" for="simulation-speed">1x</output></div><input class="speed-slider" id="simulation-speed" data-ref="speed" type="range" min="0.5" max="2" value="1" step="0.5"><div class="range-labels"><span>0.5x / SLOW</span><span>2x / FAST</span></div>
           <div class="simulation-actions"><button class="simulation-button" data-ref="run-simulation" type="button">${icon("play")}<span data-ref="simulation-button-label">Run simulation</span>${icon("arrow", "simulation-arrow")}</button><button class="simulation-stop" data-ref="simulation-stop" type="button" aria-label="Stop the simulation" hidden>${icon("stop")}</button></div>
           <p class="simulation-error" data-ref="simulation-error" role="alert" hidden></p>
@@ -113,6 +118,7 @@ export function createDashboard(root, options = {}) {
   const largeGrid = createGrid($("large-grid"), { size: "large" });
   const miniGrid = createGrid($("mini-grid"), { size: "mini" });
   const trace = createTrace($("trace-scroll"), $("trace-list"), $("trace-empty"), $("jump"), $("trace-count"));
+  const camera = createCameraPanel($("camera-root"), { client, store, listen });
 
   function switchView(view) {
     activeView = view;
@@ -123,6 +129,7 @@ export function createDashboard(root, options = {}) {
     root.querySelector(".audience-view").hidden = view !== "audience";
     root.querySelector(".technical-view").hidden = view !== "technical";
     $("simulation-error").hidden = !store.state.error || activeView !== "technical";
+    camera.setVisible(view === "technical");
     if (view === "technical") trace.onVisible();
   }
   root.querySelectorAll(".view-tab").forEach(tab => {
@@ -135,8 +142,11 @@ export function createDashboard(root, options = {}) {
     });
   });
   function cancelDemo() { interacted = true; clearTimeout(demoTimer); }
+  const cameraConfirmed = state => !state.vision || (state.vision.calibrated && state.vision.position_ok === true);
   async function submit(prompt, automatic = false) {
     if (!automatic) cancelDemo();
+    // Non-blocking: the run still starts.
+    $("prompt-warning").hidden = cameraConfirmed(store.state); setText($("prompt-warning"), CAMERA_WARNING);
     await store.submit(prompt);
     if (!disposed && !store.state.error) $("prompt").value = "";
   }
@@ -228,6 +238,11 @@ export function createDashboard(root, options = {}) {
     }
     if (lastHistory !== state.history) { renderHistory(state.history); lastHistory = state.history; }
     if (lastTrace !== state.traceVersion) { trace.render(state.trace); lastTrace = state.traceVersion; }
+    camera.render(state);
+    const pill = cameraPill(state);
+    $("camera-pill").hidden = !pill;
+    if (pill) { setText($("camera-pill"), pill.text); $("camera-pill").className = `camera-pill is-${pill.tone}`; }
+    if (cameraConfirmed(state)) $("prompt-warning").hidden = true;
   });
   listen($("copy"), "click", async () => {
     const value = JSON.stringify(store.state.map ?? {}, null, 2);
@@ -244,6 +259,7 @@ export function createDashboard(root, options = {}) {
     setText($("copy").querySelector("span"), copied ? "Copied" : "Unavailable");
     clearTimeout(copyTimer); copyTimer = setTimeout(() => setText($("copy").querySelector("span"), "Copy"), 1600);
   });
+  if (params.get("view") === "technical") switchView("technical");
   void store.init().then(() => {
     // The hosted preview demonstrates a real mock run; explicit ?mock=1 starts blank.
     if (!disposed && options.preview && mock && !params.has("mock") && !params.has("replay") && !params.has("offline")) {
@@ -253,7 +269,7 @@ export function createDashboard(root, options = {}) {
   return () => {
     disposed = true; clearTimeout(demoTimer); clearTimeout(copyTimer); controller.abort(); unsubscribe();
     flashTimers.forEach(clearTimeout); historyGrids.forEach(record => record.grid.destroy());
-    largeGrid.destroy(); miniGrid.destroy(); trace.destroy(); store.dispose(); root.replaceChildren();
+    largeGrid.destroy(); miniGrid.destroy(); trace.destroy(); camera.destroy(); store.dispose(); root.replaceChildren();
   };
 }
 

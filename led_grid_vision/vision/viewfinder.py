@@ -242,12 +242,33 @@ def _draw_parts(canvas, parts, origin, scale, thickness) -> None:
         x += cv2.getTextSize(text, FONT, scale, thickness)[0][0] + 28
 
 
+def readout_parts(readout: dict, sharp: float, calibration, grid, locked: bool) -> list[tuple[str, tuple]]:
+    """The status-bar items as (text, colour). The drawn bar and the dashboard metrics both come from here."""
+    ppl = readout["px_per_led"]
+    parts = [(readout["overall"], readout["overall_colour"]),
+             (f"px/LED {ppl:.1f}" if ppl is not None else "px/LED -", readout["px_colour"]),
+             (f"in frame: {'yes' if readout['in_frame'] else 'no'}", GREEN if readout["in_frame"] else RED),
+             (f"sharp {sharp:.0f}", WHITE)]
+    if calibration:
+        parts.append(("CALIBRATED", GREEN))
+    elif grid is not None:
+        parts.append(("LOCKED", GREEN) if locked else ("searching (a = re-lock)", AMBER))
+    return parts
+
+
 def render_view(frame, *, label="", info=None, calibration=None, rows=None,
                 zoom_centre=None, zoom=None, box=AUTO, locked=False) -> np.ndarray:
     """Pure: returns a new BGR canvas; `frame` is never modified.
 
     box=AUTO detects the lit grid in `frame` (when there is no calibration); pass a GridBox
     (e.g. a locked one) or None to override."""
+    return _render(frame, label=label, info=info, calibration=calibration, rows=rows, zoom_centre=zoom_centre,
+                   zoom=zoom, box=box, locked=locked)[0]
+
+
+def _render(frame, *, label="", info=None, calibration=None, rows=None,
+            zoom_centre=None, zoom=None, box=AUTO, locked=False):
+    """render_view, also returning what the status bar shows: (canvas, readout, parts, grid)."""
     info = info or {}
     canvas = np.zeros((CANVAS_H, CANVAS_W, 3), np.uint8)
     src = frame if frame.ndim == 3 else cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -292,15 +313,7 @@ def render_view(frame, *, label="", info=None, calibration=None, rows=None,
     if zoom_centre is not None or grid is None:
         cv2.rectangle(canvas, to_panel(x, y), to_panel(x + side, y + side), YELLOW, 1)
 
-    ppl = readout["px_per_led"]
-    parts = [(readout["overall"], readout["overall_colour"]),
-             (f"px/LED {ppl:.1f}" if ppl is not None else "px/LED -", readout["px_colour"]),
-             (f"in frame: {'yes' if readout['in_frame'] else 'no'}", GREEN if readout["in_frame"] else RED),
-             (f"sharp {sharp:.0f}", WHITE)]
-    if calibration:
-        parts.append(("CALIBRATED", GREEN))
-    elif grid is not None:
-        parts.append(("LOCKED", GREEN) if locked else ("searching (a = re-lock)", AMBER))
+    parts = readout_parts(readout, sharp, calibration, grid, locked)
     _draw_parts(canvas, parts, (14, MAIN_H + 46), 1.15, 3)
 
     status = [label] if label else []
@@ -310,7 +323,79 @@ def render_view(frame, *, label="", info=None, calibration=None, rows=None,
     if info.get("status"):
         status.append(f"status {info['status']}")
     cv2.putText(canvas, "   ".join(status), (14, CANVAS_H - 18), FONT, 0.85, WHITE, 2, cv2.LINE_AA)
-    return canvas
+    return canvas, readout, parts, grid
+
+
+COLOUR_NAMES = {GREEN: "green", AMBER: "amber", RED: "red", WHITE: "neutral"}
+
+
+def preview_metrics(readout: dict, parts: list, *, label: str, width: int, height: int, fps: float | None,
+                    calibration, locked: bool) -> dict:
+    """The readout as data for the dashboard: same values, words and colours as the drawn status bar."""
+    lock = "CALIBRATED" if calibration else "LOCKED" if locked else "SEARCHING"
+    lock_colour = COLOUR_NAMES[parts[4][1]] if len(parts) > 4 else "amber"
+    return {
+        "ready": readout["overall"],
+        "px_per_led": readout["px_per_led"],
+        "in_frame": readout["in_frame"],
+        "sharpness": None if readout["sharpness"] is None else round(float(readout["sharpness"]), 1),
+        "lock": lock,
+        "label": label,
+        "width": int(width),
+        "height": int(height),
+        "fps": None if fps is None else round(float(fps), 1),
+        "colours": {"ready": COLOUR_NAMES[parts[0][1]], "px_per_led": COLOUR_NAMES[parts[1][1]],
+                    "in_frame": COLOUR_NAMES[parts[2][1]], "sharpness": COLOUR_NAMES[parts[3][1]],
+                    "lock": lock_colour},
+    }
+
+
+class PreviewState:
+    """The viewfinder's per-frame logic without a window: lock-and-hold tracking, inset choice,
+    sharpness, fps, the drawn view and its readout. Used by Viewfinder and by the server preview."""
+
+    def __init__(self, calibration=None, zoom=None) -> None:
+        self.calibration = calibration
+        self.zoom = zoom or config.VISION_VIEW_ZOOM
+        self.zoom_centre = None  # manual centre from a click
+        self.tracker = LockTracker()
+        self.fps = None
+        self._last_t = None
+
+    def release(self) -> None:
+        """Drop the lock and any manual centre; search for the lit grid again (the `a` key)."""
+        self.tracker.release()
+        self.zoom_centre = None
+
+    def click(self, x: float, y: float, frame_shape) -> bool:
+        """A click at canvas pixel (x, y) centres the inset there (the mouse click). False if off the frame."""
+        scale, ox, oy = main_geometry(frame_shape)
+        h, w = frame_shape[:2]
+        fx, fy = (x - ox) / scale, (y - oy) / scale
+        if 0 <= fx < w and 0 <= fy < h:
+            self.zoom_centre = (fx, fy)
+            return True
+        return False
+
+    def step(self, frame, label="", rows=None, status=None, now=None) -> tuple[np.ndarray, dict]:
+        now = time.monotonic() if now is None else now
+        if self._last_t is not None and now > self._last_t:
+            inst = 1.0 / (now - self._last_t)
+            self.fps = inst if self.fps is None else 0.8 * self.fps + 0.2 * inst
+        self._last_t = now
+        box = None
+        if not self.calibration:
+            detected = None if self.tracker.locked else find_lit_grid(frame)
+            box = self.tracker.update(detected, now)
+        rect = choose_inset(frame.shape, self.calibration, box, self.zoom_centre, self.zoom)
+        info = {"width": frame.shape[1], "height": frame.shape[0], "fps": self.fps,
+                "sharpness": sharpness(frame, rect), "status": status}
+        view, readout, parts, _grid = _render(frame, label=label, info=info, calibration=self.calibration, rows=rows,
+                                              zoom_centre=self.zoom_centre, zoom=self.zoom, box=box,
+                                              locked=self.tracker.locked)
+        metrics = preview_metrics(readout, parts, label=label, width=info["width"], height=info["height"],
+                                  fps=self.fps, calibration=self.calibration, locked=self.tracker.locked)
+        return view, metrics
 
 
 def _in_pytest() -> bool:
@@ -323,16 +408,18 @@ class Viewfinder:
             enabled = config.VISION_VIEW == "1" and not isinstance(camera, FakeCamera)
         self.enabled = bool(enabled)
         self.title = title
-        self.calibration = calibration
-        self.zoom = config.VISION_VIEW_ZOOM
-        self.zoom_centre = None  # manual centre from a click
-        self.tracker = LockTracker()
+        self.state = PreviewState(calibration)  # tracking, inset, fps and readout (shared with the server preview)
         self.quit_requested = False
         self._window = False
         self._warned = False
         self._frame_shape = None
-        self._last_t = None
-        self._fps = None
+
+    calibration = property(lambda self: self.state.calibration,
+                           lambda self, value: setattr(self.state, "calibration", value))
+    zoom_centre = property(lambda self: self.state.zoom_centre,
+                           lambda self, value: setattr(self.state, "zoom_centre", value))
+    zoom = property(lambda self: self.state.zoom, lambda self, value: setattr(self.state, "zoom", value))
+    tracker = property(lambda self: self.state.tracker)
 
     @property
     def active(self) -> bool:
@@ -341,8 +428,7 @@ class Viewfinder:
 
     def release(self) -> None:
         """Drop the lock and any manual centre; search for the lit grid again."""
-        self.tracker.release()
-        self.zoom_centre = None
+        self.state.release()
 
     def update(self, frame, label="", rows=None, status=None) -> None:
         if not self.active:
@@ -350,21 +436,7 @@ class Viewfinder:
         try:
             self._frame_shape = frame.shape
             self._ensure_window()
-            now = time.monotonic()
-            if self._last_t is not None and now > self._last_t:
-                inst = 1.0 / (now - self._last_t)
-                self._fps = inst if self._fps is None else 0.8 * self._fps + 0.2 * inst
-            self._last_t = now
-            box = None
-            if not self.calibration:
-                detected = None if self.tracker.locked else find_lit_grid(frame)
-                box = self.tracker.update(detected, now)
-            rect = choose_inset(frame.shape, self.calibration, box, self.zoom_centre, self.zoom)
-            info = {"width": frame.shape[1], "height": frame.shape[0], "fps": self._fps,
-                    "sharpness": sharpness(frame, rect), "status": status}
-            view = render_view(frame, label=label, info=info, calibration=self.calibration, rows=rows,
-                               zoom_centre=self.zoom_centre, zoom=self.zoom, box=box,
-                               locked=self.tracker.locked)
+            view, _metrics = self.state.step(frame, label, rows, status)
             cv2.imshow(self.title, view)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("s"):
@@ -408,11 +480,7 @@ class Viewfinder:
     def _on_mouse(self, event, x, y, flags, param) -> None:
         if event != cv2.EVENT_LBUTTONDOWN or self._frame_shape is None:
             return
-        scale, ox, oy = main_geometry(self._frame_shape)
-        h, w = self._frame_shape[:2]
-        fx, fy = (x - ox) / scale, (y - oy) / scale
-        if 0 <= fx < w and 0 <= fy < h:
-            self.zoom_centre = (fx, fy)
+        self.state.click(x, y, self._frame_shape)
 
     def _snapshot(self, frame, view) -> None:
         try:
