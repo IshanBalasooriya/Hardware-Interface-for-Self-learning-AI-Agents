@@ -1,0 +1,47 @@
+{
+  "type": "action_sequence",
+  "version": 1,
+  "description": "Animation: upward arrow blinks four times (300 ms on, 300 ms off).",
+  "actions": [
+    {
+      "tool": "repeat",
+      "args": {
+        "count": 4,
+        "actions": [
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "0118023C037E04180518061807180818"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 300
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004000500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 300
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

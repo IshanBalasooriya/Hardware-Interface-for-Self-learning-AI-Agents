@@ -1,0 +1,6 @@
+pyserial
+python-dotenv
+openai
+fastapi
+uvicorn[standard]
+pytest

@@ -1,0 +1,239 @@
+{
+  "type": "action_sequence",
+  "version": 1,
+  "description": "Animation: a single dot bounces left and right along row 4 for 3 passes.",
+  "actions": [
+    {
+      "tool": "repeat",
+      "args": {
+        "count": 3,
+        "actions": [
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004800500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004400500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004200500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004100500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004080500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004040500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004020500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004010500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004020500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004040500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004080500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004100500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004200500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          },
+          {
+            "tool": "shift_out",
+            "args": {
+              "data_pin": 25,
+              "clock_pin": 26,
+              "latch_pin": 27,
+              "group_size": 2,
+              "data_hex": "01000200030004400500060007000800"
+            }
+          },
+          {
+            "tool": "wait",
+            "args": {
+              "duration_ms": 120
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

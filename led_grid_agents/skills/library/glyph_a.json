@@ -1,0 +1,17 @@
+{
+  "type": "action_sequence",
+  "version": 1,
+  "description": "Draw the 5x7 uppercase letter A on the LED matrix.",
+  "actions": [
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "013802440344047C0544064407440800"
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+Create a skill named symbol_heart showing a heart.
+Create a skill named symbol_smiley showing a smiley face.
+Create a skill named symbol_arrow_up showing an arrow pointing up.
+Create a skill named symbol_check showing a check mark.
+Create a skill named symbol_cross showing an X.
+Create a skill named pattern_checker showing a checkerboard.
+Create a skill named pattern_border showing only the outer border lit.
+Create a skill named pattern_clear that turns every LED off.
+Create skills digit_0 to digit_4, one per digit, using the 5x7 convention.
+Create skills digit_5 to digit_9, one per digit, using the 5x7 convention.
+Create skills glyph_a to glyph_e, one per uppercase letter, using the 5x7 convention.
+Create skills glyph_h, glyph_i, glyph_l, glyph_o, one per uppercase letter.
+Create a skill named word_hi that shows H then I using the saved glyphs.
+Create a skill named anim_heartbeat: the heart alternating with a smaller heart, 6 beats.
+Create a skill named anim_bounce: a single dot bouncing left and right along row 4, 3 passes.
+Create a skill named anim_fill: rows lighting one by one from bottom to top, then clearing.

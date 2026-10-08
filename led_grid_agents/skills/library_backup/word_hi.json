@@ -1,0 +1,39 @@
+{
+  "type": "action_sequence",
+  "version": 1,
+  "description": "Show the word HI by displaying H then I with a 600 ms pause between letters.",
+  "actions": [
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "014402440344047C0544064407440800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    },
+    {
+      "tool": "shift_out",
+      "args": {
+        "data_pin": 25,
+        "clock_pin": 26,
+        "latch_pin": 27,
+        "group_size": 2,
+        "data_hex": "017C02100310041005100610077C0800"
+      }
+    },
+    {
+      "tool": "wait",
+      "args": {
+        "duration_ms": 600
+      }
+    }
+  ]
+}

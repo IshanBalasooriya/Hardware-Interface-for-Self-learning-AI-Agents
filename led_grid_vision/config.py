@@ -6,7 +6,10 @@ Hardware values confirmed against ..\\led_grid\\config.py on 2026-10-07.
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")  # adopted from led_grid (stage 5)
 
 # Serial link
 SERIAL_PORT = os.getenv("SERIAL_PORT", "COM6")  # "fake" selects FakeLink
@@ -21,6 +24,20 @@ MSB_IS_LEFT = True
 WAKE_HEX = "0F0009000B070A020C01"
 CLEAR_HEX = "01000200030004000500060007000800"
 DEFAULT_INTENSITY = 2
+
+# Agent system, copied from ..\led_grid\config.py (stage 5, see vision_docs/MIGRATION.md)
+MAX_WAIT_MS = 10000
+MAX_HISTORY = 30
+MAX_TURNS = 20
+SKILL_TIME_CAP_S = 30
+
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://127.0.0.1:18080/v1")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5.5")
+
+# Agent integration (stage 5). "0" means exactly led_grid behaviour
+VISION_ENABLED = os.getenv("VISION_ENABLED", "0")
+VISION_REQUIRE_MATCH_FOR_SAVE = os.getenv("VISION_REQUIRE_MATCH_FOR_SAVE", "1")  # "1": save_skill refused after mismatch / not_visible
 
 # Camera
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")  # index, stream URL, or "fake"
@@ -51,6 +68,11 @@ VISION_VIEW = os.getenv("VISION_VIEW", "1")  # "1" shows the window in live scri
 VISION_VIEW_ZOOM = 6
 
 # Files
+LOG_DIR = BASE_DIR / "logs"
+STATE_FILE = LOG_DIR / "shift_state.json"
+FRAMES_LOG = LOG_DIR / "shift_frames.jsonl"
+EVENTS_LOG = LOG_DIR / "sample_events.jsonl"
+SKILLS_DIR = BASE_DIR / "skills" / "library"
 CALIBRATION_FILE = BASE_DIR / os.getenv("CALIBRATION_FILE", "logs/vision_calibration.json")  # relative -> BASE_DIR
 VISION_CAPTURE_DIR = BASE_DIR / "logs" / "vision" / "captures"
 VISION_DEBUG_DIR = BASE_DIR / "logs" / "vision" / "debug"

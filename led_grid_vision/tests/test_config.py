@@ -58,3 +58,37 @@ def test_env_overrides(monkeypatch):
         assert cfg.VISION_VIEW == "0"
     finally:
         _fresh(monkeypatch)
+
+
+AGENT_EXPECTED = {  # copied from ..\led_grid\config.py (stage 5)
+    "MAX_WAIT_MS": 10000, "MAX_HISTORY": 30, "MAX_TURNS": 20, "SKILL_TIME_CAP_S": 30,
+}
+
+
+def test_agent_defaults(monkeypatch):
+    cfg = _fresh(monkeypatch)
+    try:
+        for name, value in AGENT_EXPECTED.items():
+            assert getattr(cfg, name) == value, name
+        base = Path(cfg.__file__).resolve().parent
+        assert cfg.LOG_DIR == base / "logs"
+        assert cfg.STATE_FILE == base / "logs" / "shift_state.json"
+        assert cfg.FRAMES_LOG == base / "logs" / "shift_frames.jsonl"
+        assert cfg.EVENTS_LOG == base / "logs" / "sample_events.jsonl"
+        assert cfg.SKILLS_DIR == base / "skills" / "library"
+    finally:
+        _fresh(monkeypatch)
+
+
+def test_every_path_inside_this_folder(monkeypatch):
+    cfg = _fresh(monkeypatch)
+    try:
+        base = Path(cfg.__file__).resolve().parent
+        paths = {name: value for name, value in vars(cfg).items() if name.isupper() and isinstance(value, Path)}
+        assert len(paths) >= 9
+        for name, value in paths.items():
+            resolved = value.resolve()
+            assert resolved == base or base in resolved.parents, name
+            assert "led_grid" not in [p.name for p in resolved.parents] and resolved.name != "led_grid", name
+    finally:
+        _fresh(monkeypatch)
