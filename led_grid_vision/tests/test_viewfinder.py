@@ -273,3 +273,20 @@ def test_capture_saves_raw_full_resolution_frames(tmp_path, monkeypatch):
         saved = cv2.imread(item["paths"][-1], cv2.IMREAD_COLOR)
         assert saved.shape == (H, W, 3)
         assert np.array_equal(saved, shown)
+
+
+def test_preview_state_reference_is_overlay_only():
+    """Stage 5 fix: a loaded calibration drawn as a reference never changes the live tracker or readout."""
+    from vision.viewfinder import PreviewState
+
+    cam = FakeCamera(rows=P.all_on())
+    frame = cam.grab(1)[0]
+    centres = [[[600 + 14 * c, 310 + 14 * r] for c in range(8)] for r in range(8)]
+    plain, with_ref = PreviewState(), PreviewState()
+    with_ref.reference = {"centres_px": centres, "sample_radius_px": 3.0}
+    view_a, m_a = plain.step(frame, "live", now=1.0)
+    view_b, m_b = with_ref.step(frame, "live", now=1.0)
+    assert m_a == m_b and m_b["lock"] == "SEARCHING"
+    assert not np.array_equal(view_a, view_b)  # the reference discs are drawn
+    view_c, m_c = with_ref.step(frame, "read 1", now=1.1, calibration=with_ref.reference)
+    assert m_c["lock"] == "CALIBRATED"  # an operation frame renders calibrated

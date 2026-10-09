@@ -266,9 +266,25 @@ def render_view(frame, *, label="", info=None, calibration=None, rows=None,
                    zoom=zoom, box=box, locked=locked)[0]
 
 
+def _draw_discs(canvas, calibration: dict, rows, scale: float, to_panel) -> None:
+    """Each cell's sample disc (coloured by `rows` when given) and the corner labels."""
+    radius = max(2, int(round(float(calibration.get("sample_radius_px", 3.0)) * scale)))
+    centres = calibration["centres_px"]
+    for r in range(8):
+        for c in range(8):
+            state = rows[r][c] if rows else None
+            cv2.circle(canvas, to_panel(*centres[r][c]), radius, CELL_COLOURS.get(state, CELL_COLOURS[None]), 1)
+    for name, (r, c) in CORNER_CELLS.items():
+        px, py = to_panel(*centres[r][c])
+        cv2.putText(canvas, name, (px + radius + 2, py - radius - 2), FONT, 0.5, YELLOW, 1, cv2.LINE_AA)
+
+
 def _render(frame, *, label="", info=None, calibration=None, rows=None,
-            zoom_centre=None, zoom=None, box=AUTO, locked=False):
-    """render_view, also returning what the status bar shows: (canvas, readout, parts, grid)."""
+            zoom_centre=None, zoom=None, box=AUTO, locked=False, reference=None):
+    """render_view, also returning what the status bar shows: (canvas, readout, parts, grid).
+
+    reference: a calibration drawn only as a disc overlay when `calibration` is None. It never affects the
+    grid box, the inset or the readout (the dashboard's live setup view, stage 5)."""
     info = info or {}
     canvas = np.zeros((CANVAS_H, CANVAS_W, 3), np.uint8)
     src = frame if frame.ndim == 3 else cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -295,21 +311,15 @@ def _render(frame, *, label="", info=None, calibration=None, rows=None,
     readout = position_readout(grid, src.shape, sharp)
 
     if calibration and calibration.get("centres_px"):
-        radius = max(2, int(round(float(calibration.get("sample_radius_px", 3.0)) * scale)))
-        centres = calibration["centres_px"]
-        for r in range(8):
-            for c in range(8):
-                state = rows[r][c] if rows else None
-                cv2.circle(canvas, to_panel(*centres[r][c]), radius, CELL_COLOURS.get(state, CELL_COLOURS[None]), 1)
-        for name, (r, c) in CORNER_CELLS.items():
-            px, py = to_panel(*centres[r][c])
-            cv2.putText(canvas, name, (px + radius + 2, py - radius - 2), FONT, 0.5, YELLOW, 1, cv2.LINE_AA)
+        _draw_discs(canvas, calibration, rows, scale, to_panel)
     elif grid is not None:
         colour = GREEN if readout["overall"] == "READY" else AMBER
         poly = np.int32([to_panel(px, py) for px, py in grid.points])
         cv2.polylines(canvas, [poly], True, colour, 2, cv2.LINE_AA)
         tx, ty = poly[:, 0].min(), max(poly[:, 1].min() - 8, 18)
         cv2.putText(canvas, "LOCKED" if locked else "searching", (int(tx), int(ty)), FONT, 0.7, colour, 2, cv2.LINE_AA)
+    if not calibration and reference and reference.get("centres_px"):
+        _draw_discs(canvas, reference, None, scale, to_panel)
     if zoom_centre is not None or grid is None:
         cv2.rectangle(canvas, to_panel(x, y), to_panel(x + side, y + side), YELLOW, 1)
 
@@ -352,10 +362,16 @@ def preview_metrics(readout: dict, parts: list, *, label: str, width: int, heigh
 
 class PreviewState:
     """The viewfinder's per-frame logic without a window: lock-and-hold tracking, inset choice,
-    sharpness, fps, the drawn view and its readout. Used by Viewfinder and by the server preview."""
+    sharpness, fps, the drawn view and its readout. Used by Viewfinder and by the server preview.
 
-    def __init__(self, calibration=None, zoom=None) -> None:
+    calibration: render calibrated (discs, readout from the calibrated grid), as the scripts do.
+    reference: a loaded calibration drawn only as discs over an uncalibrated (live auto-lock) view, as the
+    server's setup preview does; it never changes the tracker, inset or readout."""
+
+    def __init__(self, calibration=None, zoom=None, clock=time.monotonic) -> None:
         self.calibration = calibration
+        self.reference = None
+        self.clock = clock
         self.zoom = zoom or config.VISION_VIEW_ZOOM
         self.zoom_centre = None  # manual centre from a click
         self.tracker = LockTracker()
@@ -377,24 +393,27 @@ class PreviewState:
             return True
         return False
 
-    def step(self, frame, label="", rows=None, status=None, now=None) -> tuple[np.ndarray, dict]:
-        now = time.monotonic() if now is None else now
+    def step(self, frame, label="", rows=None, status=None, now=None,
+             calibration=AUTO) -> tuple[np.ndarray, dict]:
+        """calibration=AUTO uses self.calibration; pass a calibration (or None) to override for this frame."""
+        cal = self.calibration if calibration is AUTO else calibration
+        now = self.clock() if now is None else now
         if self._last_t is not None and now > self._last_t:
             inst = 1.0 / (now - self._last_t)
             self.fps = inst if self.fps is None else 0.8 * self.fps + 0.2 * inst
         self._last_t = now
         box = None
-        if not self.calibration:
+        if not cal:
             detected = None if self.tracker.locked else find_lit_grid(frame)
             box = self.tracker.update(detected, now)
-        rect = choose_inset(frame.shape, self.calibration, box, self.zoom_centre, self.zoom)
+        rect = choose_inset(frame.shape, cal, box, self.zoom_centre, self.zoom)
         info = {"width": frame.shape[1], "height": frame.shape[0], "fps": self.fps,
                 "sharpness": sharpness(frame, rect), "status": status}
-        view, readout, parts, _grid = _render(frame, label=label, info=info, calibration=self.calibration, rows=rows,
+        view, readout, parts, _grid = _render(frame, label=label, info=info, calibration=cal, rows=rows,
                                               zoom_centre=self.zoom_centre, zoom=self.zoom, box=box,
-                                              locked=self.tracker.locked)
+                                              locked=self.tracker.locked, reference=self.reference)
         metrics = preview_metrics(readout, parts, label=label, width=info["width"], height=info["height"],
-                                  fps=self.fps, calibration=self.calibration, locked=self.tracker.locked)
+                                  fps=self.fps, calibration=cal, locked=self.tracker.locked)
         return view, metrics
 
 

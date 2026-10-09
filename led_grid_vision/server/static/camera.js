@@ -120,7 +120,9 @@ export function createCameraPanel(container, { client, store, listen }) {
     $("readout").replaceChildren(...readoutItems(m).map(([text, colour]) => {
       const span = document.createElement("span"); span.className = `readout-item is-${colour}`; span.textContent = text; return span;
     }));
-    setText($("readout-sub"), m ? [m.label, `${m.width}x${m.height}`, m.fps == null ? null : `${m.fps.toFixed(1)} fps`].filter(Boolean).join("  ·  ") : "no frame yet");
+    // LOCKED holds the box (as the OpenCV viewfinder): after moving the grid, Re-lock with all LEDs lit.
+    const hint = m?.lock === "LOCKED" ? "held: press Re-lock after moving the grid" : null;
+    setText($("readout-sub"), m ? [m.label, `${m.width}x${m.height}`, m.fps == null ? null : `${m.fps.toFixed(1)} fps`, hint].filter(Boolean).join("  ·  ") : "no frame yet");
     $("empty").hidden = streaming;
 
     const green = streaming && allGreen(m), calibrated = Boolean(vision.calibrated), positioned = vision.position_ok === true;

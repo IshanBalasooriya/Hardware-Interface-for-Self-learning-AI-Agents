@@ -33,13 +33,17 @@ logger = logging.getLogger(__name__)
 
 
 class _PreviewSink:
-    """Viewfinder stand-in given to GridReader and calibrate. Inert while no preview client is open."""
+    """Viewfinder stand-in given to GridReader and calibrate. Inert while no preview client is open.
+
+    The calibration GridReader hands it is kept as the preview's *reference*: operation frames (reads,
+    calibration steps, position checks) render calibrated with it, while the live setup frames keep the
+    stage 1-4 aiming behaviour (auto-lock, live readout, Re-lock, click) with its discs only drawn on top."""
 
     def __init__(self, service: "VisionService") -> None:
         self._service = service
 
-    calibration = property(lambda self: self._service.preview_state.calibration,
-                           lambda self, value: setattr(self._service.preview_state, "calibration", value))
+    calibration = property(lambda self: self._service.preview_state.reference,
+                           lambda self, value: setattr(self._service.preview_state, "reference", value))
 
     @property
     def active(self) -> bool:
@@ -47,7 +51,7 @@ class _PreviewSink:
 
     def update(self, frame, label="", rows=None, status=None) -> None:
         if self.active:
-            self._service._publish(frame, label, rows, status)
+            self._service._publish(frame, label, rows, status, calibrated_view=True)
 
     def idle(self, camera, ms, label="") -> None:
         """As Viewfinder.idle: show live frames for `ms` (discarded), or sleep when no client is open."""
@@ -266,10 +270,14 @@ class VisionService:
         self._publish(frame, PREVIEW_LABEL)
         return True
 
-    def _publish(self, frame, label="", rows=None, status=None) -> None:
+    def _publish(self, frame, label="", rows=None, status=None, calibrated_view=False) -> None:
+        """calibrated_view: an operation frame, drawn with the calibration in use; otherwise a live setup
+        frame, which runs the aiming logic of scripts.view (auto-lock and readout from the live frame)."""
         try:
             with self._data_lock:
-                view, metrics = self.preview_state.step(frame, label, rows, status)
+                state = self.preview_state
+                calibration = state.reference if calibrated_view else None
+                view, metrics = state.step(frame, label, rows, status, calibration=calibration)
                 ok, buf = cv2.imencode(".jpg", view, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                 if ok:
                     self._jpeg, self._raw, self._metrics = buf.tobytes(), frame, metrics

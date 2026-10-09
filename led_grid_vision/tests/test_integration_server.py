@@ -192,6 +192,118 @@ def test_preview_lock(tmp_path, cal_file):
         assert client.post("/api/vision/preview/lock", json={"action": "point"}).status_code == 400
 
 
+# ---------------------------------------------------------------- live setup readout and Re-lock (hardware fix)
+# The live preview must aim like scripts.view even when a calibration is loaded: auto-lock and a readout from
+# the live frame. Before the fix it rendered with the loaded calibration, so the readout was frozen and
+# Re-lock reset a tracker that was never used.
+
+DEFAULT_QUAD = ((585, 300), (695, 302), (570, 418), (712, 420))
+
+
+def _shift(quad, dx=0, dy=0):
+    return tuple((x + dx, y + dy) for x, y in quad)
+
+
+def _scale(quad, k):
+    cx, cy = np.mean(quad, axis=0)
+    return tuple((cx + (x - cx) * k, cy + (y - cy) * k) for x, y in quad)
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.t = 1000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+def live(srv, clock, frames=1) -> dict:
+    """Run the preview loop's own step `frames` times, 0.1 s apart; return the latest metrics."""
+    for _ in range(frames):
+        clock.t += 0.1
+        assert srv.vision._preview_once()
+    return srv.vision.metrics()
+
+
+def expected_readout(raw, box_from=None):
+    box = V.find_lit_grid(raw if box_from is None else box_from)
+    sharp = V.sharpness(raw, V.choose_inset(raw.shape, None, box, None, config.VISION_VIEW_ZOOM))
+    return V.position_readout(box, raw.shape, sharp)
+
+
+@pytest.fixture
+def lit(tmp_path, cal_file):
+    srv = Server(tmp_path, cal_file)  # the calibration IS loaded, as on hardware (stage 4 file)
+    clock = Clock()
+    with srv as client:
+        assert client.get("/api/status").json()["vision"]["calibrated"] is True
+        srv.vision.preview_state.clock = clock
+        client.post("/api/vision/light", json={"on": True})
+        yield srv, client, clock
+
+
+def test_live_readout_follows_the_grid_with_calibration_loaded(lit):
+    srv, _client, clock = lit
+    m = live(srv, clock)
+    raw = srv.vision.raw_preview_frame()
+    want = expected_readout(raw)
+    assert m["lock"] == "SEARCHING"  # was "CALIBRATED": the stored geometry, frozen
+    assert (m["ready"], m["px_per_led"], m["in_frame"]) == (want["overall"], want["px_per_led"], want["in_frame"])
+    assert m["sharpness"] == round(want["sharpness"], 1)
+    srv.camera.quad = _shift(DEFAULT_QUAD, dx=-575)  # left edge off the frame
+    m = live(srv, clock, frames=V.LOCK_FRAMES)  # the tracker smooths over its last LOCK_FRAMES boxes
+    assert m["ready"] == "GRID CUT OFF" and m["in_frame"] is False and m["colours"]["in_frame"] == "red"
+    srv.camera.quad = _scale(DEFAULT_QUAD, 0.45)  # far away: under VISION_MIN_PITCH_PX per LED
+    m = live(srv, clock, frames=V.LOCK_FRAMES)
+    assert m["ready"] == "MOVE CLOSER" and m["px_per_led"] < config.VISION_MIN_PITCH_PX
+
+
+def test_relock_releases_and_reacquires(lit):
+    srv, client, clock = lit
+    m = live(srv, clock, frames=8)
+    assert m["lock"] == "LOCKED" and srv.vision.preview_state.tracker.locked
+    held_px, held_sharp = m["px_per_led"], m["sharpness"]
+    srv.camera.quad = _scale(_shift(DEFAULT_QUAD, dx=-200), 1.2)  # move the grid (lid moved)
+    m = live(srv, clock, frames=3)
+    assert m["lock"] == "LOCKED" and m["px_per_led"] == held_px  # lock-and-hold, as the stage 1-4 viewfinder
+    assert m["sharpness"] != held_sharp  # sharpness is measured on every live frame
+    assert client.post("/api/vision/preview/lock", json={"action": "release"}).json() == {"ok": True}
+    m = live(srv, clock)
+    raw = srv.vision.raw_preview_frame()
+    want = expected_readout(raw)
+    assert m["lock"] == "SEARCHING" and m["px_per_led"] == want["px_per_led"] != held_px
+    m = live(srv, clock, frames=8)
+    assert m["lock"] == "LOCKED"
+    box = srv.vision.preview_state.tracker.box
+    assert box.centre[0] == pytest.approx(V.find_lit_grid(srv.vision.raw_preview_frame()).centre[0], abs=2)
+
+
+def test_click_moves_the_live_inset(lit):
+    srv, client, clock = lit
+    live(srv, clock)
+    scale, ox, oy = V.main_geometry((720, 1280))
+    client.post("/api/vision/preview/lock", json={"action": "point", "x": ox + 200 * scale, "y": oy + 150 * scale})
+    m = live(srv, clock)
+    raw = srv.vision.raw_preview_frame()
+    rect = V.inset_rect(raw.shape, (200.0, 150.0), config.VISION_VIEW_ZOOM)
+    assert m["sharpness"] == round(V.sharpness(raw, rect), 1)  # the inset follows the click
+
+
+def test_operation_frames_render_calibrated(lit):
+    srv, client, clock = lit
+    v = srv.vision
+    v.open_preview()
+    try:
+        v.set_operation("run")  # pauses the live loop, as a run does
+        v.observe(client.get("/api/shift_state").json())
+        m = v.metrics()
+        assert m["label"].startswith("read") and m["lock"] == "CALIBRATED"
+    finally:
+        v.set_operation(None)
+        v.close_preview()
+    assert live(srv, clock)["lock"] in ("SEARCHING", "LOCKED")  # back to live aiming
+
+
 # ---------------------------------------------------------------- light, calibrate, check position
 
 def test_light_on_off_restores_picture(tmp_path, cal_file):
